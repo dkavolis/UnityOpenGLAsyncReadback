@@ -57,30 +57,6 @@ namespace Yangrc.OpenGLAsyncReadback
         }
     }
 
-
-    public static class RuntimeInitializer
-    {
-        public static readonly bool SupportsAsyncGPUReadback;
-
-        static RuntimeInitializer()
-        {
-            SupportsAsyncGPUReadback = SystemInfo.supportsAsyncGPUReadback;
-        }
-
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
-        private static void Initialize()
-        {
-            if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.OpenGLCore ||
-                AsyncReadbackUpdater.Instance != null) return;
-            var go = new GameObject("__OpenGL Async Readback Updater__")
-            {
-                hideFlags = HideFlags.HideAndDontSave
-            };
-            Object.DontDestroyOnLoad(go);
-            go.AddComponent<AsyncReadbackUpdater>();
-        }
-    }
-
     /// <summary>
     /// Helper struct that wraps unity async readback and our opengl readback together, to hide difference
     /// </summary>
@@ -94,7 +70,7 @@ namespace Yangrc.OpenGLAsyncReadback
         /// <returns></returns>
         public static UniversalAsyncGPUReadbackRequest Request(Texture src, int mipmapIndex = 0)
         {
-            if (RuntimeInitializer.SupportsAsyncGPUReadback)
+            if (AsyncReadbackUpdater.SupportsAsyncGPUReadback)
             {
                 return new UniversalAsyncGPUReadbackRequest
                 {
@@ -114,7 +90,7 @@ namespace Yangrc.OpenGLAsyncReadback
         public static UniversalAsyncGPUReadbackRequest RequestIntoNativeArray<T>(ref NativeArray<T> output, Texture src,
             int mipmapIndex = 0) where T : unmanaged
         {
-            if (RuntimeInitializer.SupportsAsyncGPUReadback)
+            if (AsyncReadbackUpdater.SupportsAsyncGPUReadback)
             {
                 return new UniversalAsyncGPUReadbackRequest
                 {
@@ -133,7 +109,7 @@ namespace Yangrc.OpenGLAsyncReadback
 
         public static UniversalAsyncGPUReadbackRequest Request(ComputeBuffer computeBuffer)
         {
-            if (RuntimeInitializer.SupportsAsyncGPUReadback)
+            if (AsyncReadbackUpdater.SupportsAsyncGPUReadback)
             {
                 return new UniversalAsyncGPUReadbackRequest
                 {
@@ -153,7 +129,7 @@ namespace Yangrc.OpenGLAsyncReadback
         public static UniversalAsyncGPUReadbackRequest RequestIntoNativeArray<T>(ref NativeArray<T> output,
             ComputeBuffer computeBuffer) where T : unmanaged
         {
-            if (RuntimeInitializer.SupportsAsyncGPUReadback)
+            if (AsyncReadbackUpdater.SupportsAsyncGPUReadback)
             {
                 return new UniversalAsyncGPUReadbackRequest
                 {
