@@ -7,7 +7,6 @@
 #include <map>
 #include <memory>
 #include <mutex>
-#include <variant>
 #include <vector>
 
 #include "TypeHelpers.hpp"
@@ -30,41 +29,30 @@ struct TaskEntry {
 class Buffer {
  public:
   Buffer() noexcept = default;
-  Buffer(void* data, size_t length) noexcept : buffer_(data), length_(length) {}
+  Buffer(void* data, size_t length) noexcept : data_(data), length_(length) {}
 
-  [[nodiscard]] auto data() const noexcept -> void* {
-    if (auto* ptr = std::get_if<void*>(&buffer_); ptr != nullptr) { return *ptr; }
-    return std::get<std::unique_ptr<char[]>>(buffer_).get();
-  }
-
+  [[nodiscard]] auto data() const noexcept -> void* { return data_; }
   [[nodiscard]] auto size() const noexcept -> size_t { return length_; }
 
   void set(void* data, size_t length) noexcept {
-    buffer_ = data;
+    data_ = data;
     length_ = length;
   }
 
   void set(std::unique_ptr<char[]> data, size_t length) noexcept {
-    buffer_ = std::move(data);
-    length_ = length;
+    storage_ = std::move(data);
+    set(storage_.get(), length);
   }
 
   auto allocate_if_null(size_t length) -> void* {
-    void* ptr = data();
-    if (ptr == nullptr) {
-      std::unique_ptr<char[]> data = std::make_unique<char[]>(length);
-      ptr = data.get();
-      set(std::move(data), length);
-    }
-
-    return ptr;
+    if (data_ == nullptr) set(std::make_unique<char[]>(length), length);
+    return data_;
   }
 
-  [[nodiscard]] auto owned() const noexcept -> bool { return std::holds_alternative<std::unique_ptr<char[]>>(buffer_); }
-
  private:
-  std::variant<void*, std::unique_ptr<char[]>> buffer_ = static_cast<void*>(nullptr);
+  void* data_ = nullptr;
   size_t length_ = 0;
+  std::unique_ptr<char[]> storage_ = nullptr;
 };
 
 static std::vector<TaskEntry> tasks;  // unlikely to be large so a lookup in sorted array may be faster than std::map
@@ -460,8 +448,7 @@ auto Task_GetData(EventId event_id, void** buffer, size_t* length) -> bool {
 
   // Return the pointer.
   // The memory ownership doesn't transfer.
-  auto dataPtr = iter->task->GetData(length);
-  *buffer = dataPtr;
+  *buffer = iter->task->GetData(length);
 
   return true;
 }
