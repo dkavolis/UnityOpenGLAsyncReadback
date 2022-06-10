@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Rendering;
-using Object = UnityEngine.Object;
 
 // ReSharper disable once CheckNamespace
 namespace Yangrc.OpenGLAsyncReadback
@@ -62,88 +61,18 @@ namespace Yangrc.OpenGLAsyncReadback
     /// </summary>
     public struct UniversalAsyncGPUReadbackRequest
     {
-        /// <summary>
-        /// Request readback of a texture.
-        /// </summary>
-        /// <param name="src"></param>
-        /// <param name="mipmapIndex"></param>
-        /// <returns></returns>
-        public static UniversalAsyncGPUReadbackRequest Request(Texture src, int mipmapIndex = 0)
+        internal UniversalAsyncGPUReadbackRequest(AsyncGPUReadbackRequest request)
         {
-            if (AsyncReadbackUpdater.SupportsAsyncGPUReadback)
-            {
-                return new UniversalAsyncGPUReadbackRequest
-                {
-                    isPlugin = false,
-                    uRequest = AsyncGPUReadback.Request(src, mipIndex: mipmapIndex),
-                };
-            }
-
-            return new UniversalAsyncGPUReadbackRequest
-            {
-                isPlugin = true,
-                oRequest = OpenGLAsyncReadbackRequest.CreateTextureRequest(
-                    RenderTextureRegistry.GetFor(src).ToInt32(), mipmapIndex)
-            };
+            uRequest = request;
+            isPlugin = false;
+            oRequest = default;
         }
 
-        public static UniversalAsyncGPUReadbackRequest RequestIntoNativeArray<T>(ref NativeArray<T> output, Texture src,
-            int mipmapIndex = 0) where T : unmanaged
+        internal UniversalAsyncGPUReadbackRequest(OpenGLAsyncReadbackRequest request)
         {
-            if (AsyncReadbackUpdater.SupportsAsyncGPUReadback)
-            {
-                return new UniversalAsyncGPUReadbackRequest
-                {
-                    isPlugin = false,
-                    uRequest = AsyncGPUReadback.RequestIntoNativeArray(ref output, src, mipIndex: mipmapIndex),
-                };
-            }
-
-            return new UniversalAsyncGPUReadbackRequest
-            {
-                isPlugin = true,
-                oRequest = OpenGLAsyncReadbackRequest.CreateTextureRequest(ref output,
-                    RenderTextureRegistry.GetFor(src).ToInt32(), mipmapIndex)
-            };
-        }
-
-        public static UniversalAsyncGPUReadbackRequest Request(ComputeBuffer computeBuffer)
-        {
-            if (AsyncReadbackUpdater.SupportsAsyncGPUReadback)
-            {
-                return new UniversalAsyncGPUReadbackRequest
-                {
-                    isPlugin = false,
-                    uRequest = AsyncGPUReadback.Request(computeBuffer),
-                };
-            }
-
-            return new UniversalAsyncGPUReadbackRequest
-            {
-                isPlugin = true,
-                oRequest = OpenGLAsyncReadbackRequest.CreateComputeBufferRequest(
-                    (int)computeBuffer.GetNativeBufferPtr(), computeBuffer.stride * computeBuffer.count),
-            };
-        }
-
-        public static UniversalAsyncGPUReadbackRequest RequestIntoNativeArray<T>(ref NativeArray<T> output,
-            ComputeBuffer computeBuffer) where T : unmanaged
-        {
-            if (AsyncReadbackUpdater.SupportsAsyncGPUReadback)
-            {
-                return new UniversalAsyncGPUReadbackRequest
-                {
-                    isPlugin = false,
-                    uRequest = AsyncGPUReadback.RequestIntoNativeArray(ref output, computeBuffer),
-                };
-            }
-
-            return new UniversalAsyncGPUReadbackRequest
-            {
-                isPlugin = true,
-                oRequest = OpenGLAsyncReadbackRequest.CreateComputeBufferRequest(ref output,
-                    (int)computeBuffer.GetNativeBufferPtr(), computeBuffer.stride * computeBuffer.count),
-            };
+            uRequest = default;
+            isPlugin = false;
+            oRequest = request;
         }
 
         public bool done => isPlugin ? oRequest.done : uRequest.done;
@@ -169,7 +98,7 @@ namespace Yangrc.OpenGLAsyncReadback
 
         public bool valid => !isPlugin || oRequest.Valid();
 
-        private bool isPlugin { get; set; }
+        private bool isPlugin { get; }
 
         //fields for unity request.
         private AsyncGPUReadbackRequest uRequest;

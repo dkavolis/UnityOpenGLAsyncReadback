@@ -1,0 +1,89 @@
+﻿using Unity.Collections;
+using UnityEngine;
+using UnityEngine.Rendering;
+
+// ReSharper disable once CheckNamespace
+namespace Yangrc.OpenGLAsyncReadback
+{
+    /// <summary>
+    /// A helper class to trigger readback update every frame.
+    /// </summary>
+    [AddComponentMenu("")]
+    public class AsyncReadback : MonoBehaviour
+    {
+        private static bool _supportsAsyncGPUReadback;
+        private static AsyncReadback _instance;
+
+        private void Awake()
+        {
+            _instance = this;
+        }
+
+        private void Update()
+        {
+            OpenGLAsyncReadbackRequest.Update();
+            RenderTextureRegistry.ClearDeadRefs();
+        }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        private static void Initialize()
+        {
+            _supportsAsyncGPUReadback = SystemInfo.supportsAsyncGPUReadback;
+            if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.OpenGLCore ||
+                _instance != null) return;
+            var go = new GameObject("__OpenGL Async Readback Updater__")
+            {
+                hideFlags = HideFlags.HideAndDontSave
+            };
+            DontDestroyOnLoad(go);
+            go.AddComponent<AsyncReadback>();
+        }
+
+        /// <summary>
+        /// Request readback of a texture.
+        /// </summary>
+        /// <param name="src"></param>
+        /// <param name="mipmapIndex"></param>
+        /// <returns></returns>
+        public static UniversalAsyncGPUReadbackRequest Request(Texture src, int mipmapIndex = 0)
+        {
+            if (_supportsAsyncGPUReadback)
+                return new UniversalAsyncGPUReadbackRequest(AsyncGPUReadback.Request(src, mipIndex: mipmapIndex));
+
+            return new UniversalAsyncGPUReadbackRequest(OpenGLAsyncReadbackRequest.CreateTextureRequest(
+                RenderTextureRegistry.GetFor(src).ToInt32(), mipmapIndex));
+        }
+
+        public static UniversalAsyncGPUReadbackRequest RequestIntoNativeArray<T>(ref NativeArray<T> output, Texture src,
+            int mipmapIndex = 0) where T : unmanaged
+        {
+            if (_supportsAsyncGPUReadback)
+                return new UniversalAsyncGPUReadbackRequest(
+                    AsyncGPUReadback.RequestIntoNativeArray(ref output, src, mipIndex: mipmapIndex));
+
+            return new UniversalAsyncGPUReadbackRequest(OpenGLAsyncReadbackRequest.CreateTextureRequest(ref output,
+                RenderTextureRegistry.GetFor(src).ToInt32(), mipmapIndex));
+        }
+
+        public static UniversalAsyncGPUReadbackRequest Request(ComputeBuffer computeBuffer)
+        {
+            if (_supportsAsyncGPUReadback)
+                return new UniversalAsyncGPUReadbackRequest(AsyncGPUReadback.Request(computeBuffer));
+
+            return new UniversalAsyncGPUReadbackRequest(OpenGLAsyncReadbackRequest.CreateComputeBufferRequest(
+                (int)computeBuffer.GetNativeBufferPtr(), computeBuffer.stride * computeBuffer.count));
+        }
+
+        public static UniversalAsyncGPUReadbackRequest RequestIntoNativeArray<T>(ref NativeArray<T> output,
+            ComputeBuffer computeBuffer) where T : unmanaged
+        {
+            if (_supportsAsyncGPUReadback)
+                return new UniversalAsyncGPUReadbackRequest(
+                    AsyncGPUReadback.RequestIntoNativeArray(ref output, computeBuffer));
+
+            return new UniversalAsyncGPUReadbackRequest(OpenGLAsyncReadbackRequest.CreateComputeBufferRequest(
+                ref output,
+                (int)computeBuffer.GetNativeBufferPtr(), computeBuffer.stride * computeBuffer.count));
+        }
+    }
+}
