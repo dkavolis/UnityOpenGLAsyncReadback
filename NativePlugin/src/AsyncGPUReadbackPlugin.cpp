@@ -1,3 +1,5 @@
+#include "AsyncGPUReadbackPlugin.hpp"
+
 #include <atomic>
 #include <cstddef>
 #include <cstring>
@@ -7,8 +9,6 @@
 #include <vector>
 
 #include "TypeHelpers.hpp"
-#include "Unity/IUnityGraphics.h"
-#include "Unity/IUnityInterface.h"
 
 #ifdef DEBUG
 #  include <fstream>
@@ -26,9 +26,6 @@ static std::map<int, std::shared_ptr<BaseTask>> tasks;  // NOLINT(cert-err58-cpp
 static std::vector<int> pending_release_tasks;
 static std::mutex tasks_mutex;
 int next_event_id = 1;
-
-extern "C" auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API CheckCompatible() -> bool;
-static void UNITY_INTERFACE_API OnGraphicsDeviceEvent(UnityGfxDeviceEventType eventType);
 
 // Call this on a function parameter to suppress the unused parameter warning
 template <class T>
@@ -259,7 +256,7 @@ struct FrameTask : public BaseTask {
 /**
  * Unity plugin load event
  */
-extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginLoad(IUnityInterfaces* unityInterfaces) {
+void UnityPluginLoad(IUnityInterfaces* unityInterfaces) {
   graphics = unityInterfaces->Get<IUnityGraphics>();
   graphics->RegisterDeviceEventCallback(OnGraphicsDeviceEvent);
 
@@ -273,14 +270,12 @@ extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginLoad(IUnit
 /**
  * Unity unload plugin event
  */
-extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginUnload() {
-  graphics->UnregisterDeviceEventCallback(OnGraphicsDeviceEvent);
-}
+void UnityPluginUnload() { graphics->UnregisterDeviceEventCallback(OnGraphicsDeviceEvent); }
 
 /**
  * Called for every graphics device events
  */
-static void UNITY_INTERFACE_API OnGraphicsDeviceEvent(UnityGfxDeviceEventType eventType) {
+void OnGraphicsDeviceEvent(UnityGfxDeviceEventType eventType) {
   // Create graphics API implementation upon initialization
   if (eventType == kUnityGfxDeviceEventInitialize) { renderer = graphics->GetRenderer(); }
 
@@ -292,9 +287,7 @@ static void UNITY_INTERFACE_API OnGraphicsDeviceEvent(UnityGfxDeviceEventType ev
  * Check if plugin is compatible with this system
  * This plugin is only compatible with opengl core
  */
-extern "C" auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API CheckCompatible() -> bool {
-  return (renderer == kUnityGfxRendererOpenGLCore);
-}
+auto CheckCompatible() -> bool { return (renderer == kUnityGfxRendererOpenGLCore); }
 
 auto InsertEvent(std::shared_ptr<BaseTask> task) -> int {
   int event_id = next_event_id;
@@ -314,8 +307,7 @@ auto InsertEvent(std::shared_ptr<BaseTask> task) -> int {
  * @param texture OpenGL texture id
  * @return event_id to give to other functions and to IssuePluginEvent
  */
-extern "C" auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API RequestTextureMainThread(GLuint texture, int miplevel)
-    -> int {
+auto RequestTextureMainThread(GLuint texture, int miplevel) -> int {
   // Create the task
   std::shared_ptr<FrameTask> task = std::make_shared<FrameTask>();
   task->texture = texture;
@@ -323,8 +315,7 @@ extern "C" auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API RequestTextureMainThr
   return InsertEvent(task);
 }
 
-extern "C" auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API RequestComputeBufferMainThread(GLuint computeBuffer,
-                                                                                          GLint bufferSize) -> int {
+auto RequestComputeBufferMainThread(GLuint computeBuffer, GLint bufferSize) -> int {
   // Create the task
   std::shared_ptr<SsboTask> task = std::make_shared<SsboTask>();
   task->Init(computeBuffer, bufferSize);
@@ -336,7 +327,7 @@ extern "C" auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API RequestComputeBufferM
  * Has to be called by GL.IssuePluginEvent
  * @param event_id containing the the task index, given by makeRequest_mainThread
  */
-extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API KickstartRequestInRenderThread(int event_id) {
+void KickstartRequestInRenderThread(int event_id) {
   // Get task back
   std::lock_guard<std::mutex> guard(tasks_mutex);
   std::shared_ptr<BaseTask> task = tasks[event_id];
@@ -345,26 +336,22 @@ extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API KickstartRequestInRen
   task->initialized = true;
 }
 
-extern "C" auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API GetKickstartFunctionPtr() -> UnityRenderingEvent {
-  return KickstartRequestInRenderThread;
-}
+auto GetKickstartFunctionPtr() -> UnityRenderingEvent { return KickstartRequestInRenderThread; }
 
 /**
  * Update all current available tasks. Should be called in render thread.
  */
-extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UpdateRenderThread(int event_id) {
+void UpdateRenderThread(int event_id) {
   unused(event_id);
   // Lock up.
   std::lock_guard<std::mutex> guard(tasks_mutex);
-  for (auto ite = tasks.begin(); ite != tasks.end(); ite++) {
-    auto task = ite->second;
+  for (auto & ite : tasks) {
+    auto task = ite.second;
     if (task != nullptr && task->initialized && !task->done) task->Update();
   }
 }
 
-extern "C" auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API GetUpdateRenderThreadFunctionPtr() -> UnityRenderingEvent {
-  return UpdateRenderThread;
-}
+auto GetUpdateRenderThreadFunctionPtr() -> UnityRenderingEvent { return UpdateRenderThread; }
 
 /**
  * Update in main thread.
@@ -372,7 +359,7 @@ extern "C" auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API GetUpdateRenderThread
  * Also save tasks that are done this frame.
  * By doing this, all tasks are done for one frame, then removed.
  */
-extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UpdateMainThread() {
+void UpdateMainThread() {
   // Lock up.
   std::lock_guard<std::mutex> guard(tasks_mutex);
 
@@ -384,9 +371,9 @@ extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UpdateMainThread() {
   pending_release_tasks.clear();
 
   // Push new done tasks to pending list.
-  for (auto ite = tasks.begin(); ite != tasks.end(); ite++) {
-    auto task = ite->second;
-    if (task->done) { pending_release_tasks.push_back(ite->first); }
+  for (auto & ite : tasks) {
+    auto task = ite.second;
+    if (task->done) { pending_release_tasks.push_back(ite.first); }
   }
 }
 
@@ -395,7 +382,7 @@ extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UpdateMainThread() {
  * The data owner is still native plugin, outside caller should copy the data asap to avoid any problem.
  *
  */
-extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API GetData(int event_id, void** buffer, size_t* length) {
+void GetData(int event_id, void** buffer, size_t* length) {
   // Get task back
   std::lock_guard<std::mutex> guard(tasks_mutex);
   std::shared_ptr<BaseTask> task = tasks[event_id];
@@ -413,7 +400,7 @@ extern "C" void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API GetData(int event_id,
  * @brief Check if request exists
  * @param event_id containing the the task index, given by makeRequest_mainThread
  */
-extern "C" auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API TaskExists(int event_id) -> bool {
+auto TaskExists(int event_id) -> bool {
   // Get task back
   std::lock_guard<std::mutex> guard(tasks_mutex);
   bool result = tasks.find(event_id) != tasks.end();
@@ -425,7 +412,7 @@ extern "C" auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API TaskExists(int event_
  * @brief Check if request is done
  * @param event_id containing the the task index, given by makeRequest_mainThread
  */
-extern "C" auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API TaskDone(int event_id) -> bool {
+auto TaskDone(int event_id) -> bool {
   // Get task back
   std::lock_guard<std::mutex> guard(tasks_mutex);
   auto ite = tasks.find(event_id);
@@ -437,7 +424,7 @@ extern "C" auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API TaskDone(int event_id
  * @brief Check if request is in error
  * @param event_id containing the the task index, given by makeRequest_mainThread
  */
-extern "C" auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API TaskError(int event_id) -> bool {
+auto TaskError(int event_id) -> bool {
   // Get task back
   std::lock_guard<std::mutex> guard(tasks_mutex);
   auto ite = tasks.find(event_id);

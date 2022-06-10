@@ -3,6 +3,7 @@ project(AsyncGPUReadbackPlugin LANGUAGES C CXX)
 
 set(HEADERS
     src/TypeHelpers.hpp
+    src/AsyncGPUReadbackPlugin.hpp
     src/Unity/IUnityGraphics.h
     src/Unity/IUnityGraphicsD3D9.h
     src/Unity/IUnityGraphicsD3D11.h
