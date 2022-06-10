@@ -3,34 +3,40 @@ using System.Collections.Generic;
 using UnityEngine;
 using Unity.Collections;
 
+// ReSharper disable once CheckNamespace
 namespace Yangrc.OpenGLAsyncReadback {
     public class ComputeBufferTest : MonoBehaviour {
-        NativeArray<float> test;
-        ComputeBuffer t;
-        UniversalAsyncGPUReadbackRequest request;
+        private NativeArray<float> test;
+        private ComputeBuffer t;
+
+        private UniversalAsyncGPUReadbackRequest request;
         // Start is called before the first frame update
 
-        IEnumerator Start() {
+        private IEnumerator Start() {
             t = new ComputeBuffer(100, 4, ComputeBufferType.Default);
             var tempList = new List<float>();
-            for (int i = 0; i < 100; i++) {
+            for (var i = 0; i < 100; i++) {
                 tempList.Add(i);
             }
             t.SetData(tempList);
             yield return null;
-            request = UniversalAsyncGPUReadbackRequest.Request(t);
-            t.Dispose();
+            request = AsyncReadback.Request(t);
         }
 
-        private void Update() {
-            if (request.valid) {
-                if (request.done) {
-                    test = request.GetData<float>();
-                    foreach (var item in test) {
-                        Debug.Log(item);
-                    }
-                }
+        private void Update()
+        {
+            if (!request.valid) return;
+            if (!request.done) return;
+
+            test = request.GetData<float>();
+            foreach (float item in test) {
+                Debug.Log(item);
             }
+        }
+
+        private void OnDestroy()
+        {
+            t.Dispose();
         }
     }
 }
