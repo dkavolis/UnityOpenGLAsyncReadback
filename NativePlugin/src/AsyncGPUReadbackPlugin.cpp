@@ -51,7 +51,7 @@ struct BaseTask {
 
   auto GetData(size_t* length) -> char* {
     if (!done || error) { return nullptr; }
-    std::lock_guard<std::mutex> guard(mainthread_data_mutex);
+    std::scoped_lock guard(mainthread_data_mutex);
     if (this->result_data == nullptr) { return nullptr; }
     *length = result_data_length;
     return result_data.get();
@@ -62,7 +62,7 @@ struct BaseTask {
    * Called by subclass in Update, to commit data and mark as done.
    */
   void FinishAndCommitData(std::unique_ptr<char[]> dataPtr, size_t length) {
-    std::lock_guard<std::mutex> guard(mainthread_data_mutex);
+    std::scoped_lock guard(mainthread_data_mutex);
     if (this->result_data != nullptr) {
       // WTF
       return;
@@ -293,7 +293,7 @@ auto InsertEvent(std::shared_ptr<BaseTask> task) -> int {
   int event_id = next_event_id;
   next_event_id++;
 
-  std::lock_guard<std::mutex> guard(tasks_mutex);
+  std::scoped_lock guard(tasks_mutex);
   tasks[event_id] = std::move(task);
 
   return event_id;
@@ -329,7 +329,7 @@ auto RequestComputeBufferMainThread(GLuint computeBuffer, GLint bufferSize) -> i
  */
 void KickstartRequestInRenderThread(int event_id) {
   // Get task back
-  std::lock_guard<std::mutex> guard(tasks_mutex);
+  std::scoped_lock guard(tasks_mutex);
   std::shared_ptr<BaseTask> task = tasks[event_id];
   task->StartRequest();
   // Done init
@@ -344,8 +344,8 @@ auto GetKickstartFunctionPtr() -> UnityRenderingEvent { return KickstartRequestI
 void UpdateRenderThread(int event_id) {
   unused(event_id);
   // Lock up.
-  std::lock_guard<std::mutex> guard(tasks_mutex);
-  for (auto & ite : tasks) {
+  std::scoped_lock guard(tasks_mutex);
+  for (auto& ite : tasks) {
     auto task = ite.second;
     if (task != nullptr && task->initialized && !task->done) task->Update();
   }
@@ -361,7 +361,7 @@ auto GetUpdateRenderThreadFunctionPtr() -> UnityRenderingEvent { return UpdateRe
  */
 void UpdateMainThread() {
   // Lock up.
-  std::lock_guard<std::mutex> guard(tasks_mutex);
+  std::scoped_lock guard(tasks_mutex);
 
   // Remove tasks that are done in the last update.
   for (auto& event_id : pending_release_tasks) {
@@ -371,7 +371,7 @@ void UpdateMainThread() {
   pending_release_tasks.clear();
 
   // Push new done tasks to pending list.
-  for (auto & ite : tasks) {
+  for (auto& ite : tasks) {
     auto task = ite.second;
     if (task->done) { pending_release_tasks.push_back(ite.first); }
   }
@@ -384,7 +384,7 @@ void UpdateMainThread() {
  */
 void GetData(int event_id, void** buffer, size_t* length) {
   // Get task back
-  std::lock_guard<std::mutex> guard(tasks_mutex);
+  std::scoped_lock guard(tasks_mutex);
   std::shared_ptr<BaseTask> task = tasks[event_id];
 
   // Do something only if initialized (thread safety)
@@ -402,7 +402,7 @@ void GetData(int event_id, void** buffer, size_t* length) {
  */
 auto TaskExists(int event_id) -> bool {
   // Get task back
-  std::lock_guard<std::mutex> guard(tasks_mutex);
+  std::scoped_lock guard(tasks_mutex);
   bool result = tasks.find(event_id) != tasks.end();
 
   return result;
@@ -414,7 +414,7 @@ auto TaskExists(int event_id) -> bool {
  */
 auto TaskDone(int event_id) -> bool {
   // Get task back
-  std::lock_guard<std::mutex> guard(tasks_mutex);
+  std::scoped_lock guard(tasks_mutex);
   auto ite = tasks.find(event_id);
   if (ite != tasks.end()) return ite->second->done;
   return true;  // If it's disposed, also assume it's done.
@@ -426,7 +426,7 @@ auto TaskDone(int event_id) -> bool {
  */
 auto TaskError(int event_id) -> bool {
   // Get task back
-  std::lock_guard<std::mutex> guard(tasks_mutex);
+  std::scoped_lock guard(tasks_mutex);
   auto ite = tasks.find(event_id);
   if (ite != tasks.end()) return ite->second->error;
 
