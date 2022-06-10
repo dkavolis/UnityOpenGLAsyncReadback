@@ -29,6 +29,7 @@ void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API GetData(EventId event_id, void**
 auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API TaskExists(EventId event_id) -> bool;
 auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API TaskDone(EventId event_id) -> bool;
 auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API TaskError(EventId event_id) -> bool;
+void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API WaitForCompletion(EventId event_id);
 }
 
 void UNITY_INTERFACE_API OnGraphicsDeviceEvent(UnityGfxDeviceEventType eventType);

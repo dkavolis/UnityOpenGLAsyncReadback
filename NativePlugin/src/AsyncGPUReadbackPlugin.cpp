@@ -499,3 +499,17 @@ auto TaskError(EventId event_id) -> bool {
 
   return true;  // It's disposed, assume as error.
 }
+
+void WaitForCompletion(EventId event_id) {
+  std::shared_ptr<BaseTask> task;
+
+  // get the task first
+  {
+    std::scoped_lock guard(tasks_mutex);
+    auto iter = FindEvent(event_id);
+    if (iter != tasks.cend() || iter->task->done) return;
+    task = iter->task;
+  }
+
+  while (!task->done) { UpdateRenderThread(0); }
+}
