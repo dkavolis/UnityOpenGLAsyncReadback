@@ -7,15 +7,19 @@
 
 using EventId = int;
 
-// TODO: requests into existing buffers (avoiding allocations and copies)
-
 extern "C" {
 void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginLoad(IUnityInterfaces* unityInterfaces);
 void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UnityPluginUnload();
 auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API CheckCompatible() -> bool;
 auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API RequestTextureMainThread(GLuint texture, int miplevel) -> EventId;
+auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API RequestTextureIntoArrayMainThread(void* data, size_t size,
+                                                                                  GLuint texture, int miplevel)
+    -> EventId;
 auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API RequestComputeBufferMainThread(GLuint computeBuffer, GLint bufferSize)
     -> EventId;
+auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API RequestComputeBufferIntoArrayMainThread(void* data, size_t size,
+                                                                                        GLuint computeBuffer,
+                                                                                        GLint bufferSize) -> EventId;
 void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API KickstartRequestInRenderThread(EventId event_id);
 auto UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API GetKickstartFunctionPtr() -> UnityRenderingEvent;
 void UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API UpdateRenderThread(EventId event_id);

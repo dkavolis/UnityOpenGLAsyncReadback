@@ -1,11 +1,13 @@
 #include "AsyncGPUReadbackPlugin.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstring>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <variant>
 #include <vector>
 
 #include "TypeHelpers.hpp"
@@ -20,6 +22,49 @@ static UnityGfxRenderer renderer = kUnityGfxRendererNull;
 struct TaskEntry {
   EventId id;
   std::shared_ptr<BaseTask> task = nullptr;
+};
+
+/**
+ * @brief Owned or borrowed buffer
+ */
+class Buffer {
+ public:
+  Buffer() noexcept = default;
+  Buffer(void* data, size_t length) noexcept : buffer_(data), length_(length) {}
+
+  [[nodiscard]] auto data() const noexcept -> void* {
+    if (auto* ptr = std::get_if<void*>(&buffer_); ptr != nullptr) { return *ptr; }
+    return std::get<std::unique_ptr<char[]>>(buffer_).get();
+  }
+
+  [[nodiscard]] auto size() const noexcept -> size_t { return length_; }
+
+  void set(void* data, size_t length) noexcept {
+    buffer_ = data;
+    length_ = length;
+  }
+
+  void set(std::unique_ptr<char[]> data, size_t length) noexcept {
+    buffer_ = std::move(data);
+    length_ = length;
+  }
+
+  auto allocate_if_null(size_t length) -> void* {
+    void* ptr = data();
+    if (ptr == nullptr) {
+      std::unique_ptr<char[]> data = std::make_unique<char[]>(length);
+      ptr = data.get();
+      set(std::move(data), length);
+    }
+
+    return ptr;
+  }
+
+  [[nodiscard]] auto owned() const noexcept -> bool { return std::holds_alternative<std::unique_ptr<char[]>>(buffer_); }
+
+ private:
+  std::variant<void*, std::unique_ptr<char[]>> buffer_ = static_cast<void*>(nullptr);
+  size_t length_ = 0;
 };
 
 static std::vector<TaskEntry> tasks;  // unlikely to be large so a lookup in sorted array may be faster than std::map
@@ -37,34 +82,24 @@ struct BaseTask {
   virtual void Update() = 0;
 
   BaseTask() noexcept = default;
+  BaseTask(void* data, size_t length) noexcept : result_(data, length) {}
   BaseTask(BaseTask const&) noexcept = delete;
   BaseTask(BaseTask&&) noexcept = delete;
   auto operator=(BaseTask const&) noexcept = delete;
   auto operator=(BaseTask&&) noexcept = delete;
   virtual ~BaseTask() noexcept = default;
 
-  auto GetData(size_t* length) -> char* {
+  auto GetData(size_t* length) -> void* {
     if (!done || error) { return nullptr; }
     std::scoped_lock guard(mainthread_data_mutex);
-    if (this->result_data == nullptr) { return nullptr; }
-    *length = result_data_length;
-    return result_data.get();
+    *length = result_.size();
+    return result_.data();
   }
 
+  [[nodiscard]] auto BufferSize(size_t other) const noexcept -> size_t { return std::min(result_.size(), other); }
+
  protected:
-  /*
-   * Called by subclass in Update, to commit data and mark as done.
-   */
-  void FinishAndCommitData(std::unique_ptr<char[]> dataPtr, size_t length) {
-    std::scoped_lock guard(mainthread_data_mutex);
-    if (this->result_data != nullptr) {
-      // WTF
-      return;
-    }
-    this->result_data = std::move(dataPtr);
-    this->result_data_length = length;
-    done = true;
-  }
+  auto AllocateOrGet(size_t length) -> void* { return result_.allocate_if_null(length); }
 
   /*
   Called by subclass to mark as error.
@@ -76,8 +111,7 @@ struct BaseTask {
 
  private:
   std::mutex mainthread_data_mutex;
-  std::unique_ptr<char[]> result_data = nullptr;
-  size_t result_data_length = 0;
+  Buffer result_;
 };
 
 /*Task for readback from ssbo. Which is compute buffer in Unity
@@ -87,6 +121,8 @@ struct SsboTask : public BaseTask {
   GLuint pbo = 0;
   GLsync fence = nullptr;
   GLint bufferSize = 0;
+
+  using BaseTask::BaseTask;
 
   void Init(GLuint _ssbo, GLint _bufferSize) {
     this->ssbo = _ssbo;
@@ -134,9 +170,9 @@ struct SsboTask : public BaseTask {
       void* ptr = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, bufferSize, GL_MAP_READ_BIT);
 
       // Allocate the final data buffer !!! WARNING: free, will have to be done on script side !!!!
-      std::unique_ptr<char[]> data = std::make_unique<char[]>(bufferSize);
-      std::memcpy(data.get(), ptr, bufferSize);
-      FinishAndCommitData(std::move(data), bufferSize);
+      void* data = AllocateOrGet(bufferSize);
+      std::memcpy(data, ptr, BufferSize(bufferSize));
+      this->done = true;
 
       // Unmap and unbind
       glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
@@ -167,6 +203,8 @@ struct FrameTask : public BaseTask {
   int width = 0;
   int depth = 0;
   GLint internal_format = 0;
+
+  using BaseTask::BaseTask;
 
   void StartRequest() override {
     // Get texture information
@@ -226,11 +264,10 @@ struct FrameTask : public BaseTask {
       glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
 
       // Map the buffer and copy it to data
-
-      std::unique_ptr<char[]> data = std::make_unique<char[]>(size);
       void* ptr = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, size, GL_MAP_READ_BIT);
-      std::memcpy(data.get(), ptr, size);
-      FinishAndCommitData(std::move(data), size);
+      void* data = AllocateOrGet(size);
+      std::memcpy(data, ptr, BufferSize(size));
+      this->done = true;
 
       // Unmap and unbind
       glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
@@ -332,9 +369,24 @@ auto RequestTextureMainThread(GLuint texture, int miplevel) -> EventId {
   return InsertEvent(std::move(task));
 }
 
+auto RequestTextureIntoArrayMainThread(void* data, size_t size, GLuint texture, int miplevel) -> EventId {
+  std::shared_ptr<FrameTask> task = std::make_shared<FrameTask>(data, size);
+  task->texture = texture;
+  task->miplevel = miplevel;
+  return InsertEvent(std::move(task));
+}
+
 auto RequestComputeBufferMainThread(GLuint computeBuffer, GLint bufferSize) -> EventId {
   // Create the task
   std::shared_ptr<SsboTask> task = std::make_shared<SsboTask>();
+  task->Init(computeBuffer, bufferSize);
+  return InsertEvent(std::move(task));
+}
+
+auto RequestComputeBufferIntoArrayMainThread(void* data, size_t size, GLuint computeBuffer, GLint bufferSize)
+    -> EventId {
+  // Create the task
+  std::shared_ptr<SsboTask> task = std::make_shared<SsboTask>(data, size);
   task->Init(computeBuffer, bufferSize);
   return InsertEvent(std::move(task));
 }
