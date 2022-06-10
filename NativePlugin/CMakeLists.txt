@@ -35,3 +35,18 @@ if(MSVC)
 else()
   target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -pedantic -Werror)
 endif()
+
+if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+  # macOS
+  set(dirname MacOS)
+elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
+  set(dirname Linux)
+elseif(CMAKE_SYSTEM_NAME MATCHES "Windows")
+  set(dirname Windows)
+endif()
+
+if(dirname)
+  set(outdir ${CMAKE_CURRENT_SOURCE_DIR}/../UnityExampleProject/Assets/OpenglAsyncReadback/Plugins/${dirname})
+  add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}>
+                                                               ${outdir}/$<TARGET_FILE_NAME:${PROJECT_NAME}>)
+endif()
