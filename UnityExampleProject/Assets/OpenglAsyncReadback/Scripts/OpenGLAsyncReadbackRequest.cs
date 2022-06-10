@@ -10,12 +10,33 @@ namespace Yangrc.OpenGLAsyncReadback
 {
     internal struct OpenGLAsyncReadbackRequest
     {
+        private static IntPtr _kickstartFunction = IntPtr.Zero;
+
+        private static IntPtr kickStartFunction
+        {
+            get
+            {
+                if (_kickstartFunction == IntPtr.Zero) _kickstartFunction = GetKickstartFunctionPtr();
+                return _kickstartFunction;
+            }
+        }
+
+        private static IntPtr _renderThreadUpdateFunction = IntPtr.Zero;
+
+        private static IntPtr renderThreadUpdateFunction
+        {
+            get
+            {
+                if (_renderThreadUpdateFunction == IntPtr.Zero)
+                    _renderThreadUpdateFunction = GetUpdateRenderThreadFunctionPtr();
+                return _renderThreadUpdateFunction;
+            }
+        }
+
         public static bool IsAvailable()
         {
             return SystemInfo.graphicsDeviceType == GraphicsDeviceType.OpenGLCore; //Not tested on es3 yet.
         }
-
-        // TODO: return the pointer to task directly to avoid lookup on every call?
 
         /// <summary>
         /// Identify native task object handling the request.
@@ -31,20 +52,20 @@ namespace Yangrc.OpenGLAsyncReadback
         /// <summary>
         /// Check if the request is done
         /// </summary>
-        public bool done => TaskDone(nativeTaskHandle);
+        public bool done => Task_Done(nativeTaskHandle);
 
         /// <summary>
         /// Check if the request has an error
         /// </summary>
-        public bool hasError => TaskError(nativeTaskHandle);
+        public bool hasError => Task_Error(nativeTaskHandle);
 
         public static OpenGLAsyncReadbackRequest CreateTextureRequest(int textureOpenGLName, int mipmapLevel)
         {
             var result = new OpenGLAsyncReadbackRequest
             {
-                nativeTaskHandle = RequestTextureMainThread(textureOpenGLName, mipmapLevel)
+                nativeTaskHandle = Request_Texture(textureOpenGLName, mipmapLevel)
             };
-            GL.IssuePluginEvent(GetKickstartFunctionPtr(), result.nativeTaskHandle);
+            GL.IssuePluginEvent(kickStartFunction, result.nativeTaskHandle);
             return result;
         }
 
@@ -53,7 +74,7 @@ namespace Yangrc.OpenGLAsyncReadback
         {
             var result = new OpenGLAsyncReadbackRequest
             {
-                nativeTaskHandle = RequestTextureIntoArrayMainThread(output.GetUnsafePtr(),
+                nativeTaskHandle = Request_TextureIntoArray(output.GetUnsafePtr(),
                     output.Length * sizeof(T), textureOpenGLName, mipmapLevel),
                 requestedAllocator = NativeArrayUtility<T>.GetAllocator(output)
             };
@@ -62,7 +83,7 @@ namespace Yangrc.OpenGLAsyncReadback
             AtomicSafetyHandle.SetAllowReadOrWriteAccess(result.safetyHandle.Value, false);
 #endif
 
-            GL.IssuePluginEvent(GetKickstartFunctionPtr(), result.nativeTaskHandle);
+            GL.IssuePluginEvent(kickStartFunction, result.nativeTaskHandle);
             return result;
         }
 
@@ -70,9 +91,9 @@ namespace Yangrc.OpenGLAsyncReadback
         {
             var result = new OpenGLAsyncReadbackRequest
             {
-                nativeTaskHandle = RequestComputeBufferMainThread(computeBufferOpenGLName, size)
+                nativeTaskHandle = Request_ComputeBuffer(computeBufferOpenGLName, size)
             };
-            GL.IssuePluginEvent(GetKickstartFunctionPtr(), result.nativeTaskHandle);
+            GL.IssuePluginEvent(kickStartFunction, result.nativeTaskHandle);
             return result;
         }
 
@@ -81,7 +102,7 @@ namespace Yangrc.OpenGLAsyncReadback
         {
             var result = new OpenGLAsyncReadbackRequest
             {
-                nativeTaskHandle = RequestComputeBufferIntoArrayMainThread(output.GetUnsafePtr(),
+                nativeTaskHandle = Request_ComputeBufferIntoArray(output.GetUnsafePtr(),
                     output.Length * sizeof(T), computeBufferOpenGLName, size),
                 requestedAllocator = NativeArrayUtility<T>.GetAllocator(output)
             };
@@ -90,35 +111,30 @@ namespace Yangrc.OpenGLAsyncReadback
             AtomicSafetyHandle.SetAllowReadOrWriteAccess(result.safetyHandle.Value, false);
 #endif
 
-            GL.IssuePluginEvent(GetKickstartFunctionPtr(), result.nativeTaskHandle);
+            GL.IssuePluginEvent(kickStartFunction, result.nativeTaskHandle);
             return result;
         }
 
         public bool Valid()
         {
-            return TaskExists(nativeTaskHandle);
-        }
-
-        private void AssertRequestValid()
-        {
-            if (!Valid())
-            {
-                throw new UnityException("The request is not valid!");
-            }
+            return Task_Exists(nativeTaskHandle);
         }
 
         public unsafe NativeArray<T> GetRawData<T>() where T : struct
         {
-            AssertRequestValid();
-            if (!done)
-            {
-                throw new InvalidOperationException("The request is not done yet!");
-            }
-
             // Get data from cpp plugin
             void* ptr = null;
             var length = 0;
-            GetData(nativeTaskHandle, ref ptr, ref length);
+            bool success = Task_GetData(nativeTaskHandle, ref ptr, ref length);
+            if (!success)
+            {
+                // using Task_GetData to check if the request is valid, only a single native function call if everything is fine
+                if (!Task_Exists(nativeTaskHandle))
+                    throw new InvalidOperationException("The request no longer exists!");
+                if (!Task_Done(nativeTaskHandle))
+                    throw new InvalidOperationException("The request is not done yet!");
+                throw new InvalidOperationException("The request has an error!");
+            }
 
             NativeArray<T> resultNativeArray =
                 NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<T>(ptr, length, requestedAllocator);
@@ -138,54 +154,54 @@ namespace Yangrc.OpenGLAsyncReadback
 
         public void WaitForCompletion()
         {
-            WaitForCompletion(nativeTaskHandle);
+            Task_WaitForCompletion(nativeTaskHandle);
         }
 
         internal static void Update()
         {
             UpdateMainThread();
-            GL.IssuePluginEvent(GetUpdateRenderThreadFunctionPtr(), 0);
+            GL.IssuePluginEvent(renderThreadUpdateFunction, 0);
         }
 
         [DllImport("AsyncGPUReadbackPlugin")]
         private static extern bool CheckCompatible();
 
         [DllImport("AsyncGPUReadbackPlugin")]
-        private static extern int RequestTextureMainThread(int texture, int miplevel);
+        private static extern int Request_Texture(int texture, int miplevel);
 
         [DllImport("AsyncGPUReadbackPlugin")]
-        private static extern unsafe int RequestTextureIntoArrayMainThread(void* buffer, int size, int texture,
+        private static extern unsafe int Request_TextureIntoArray(void* buffer, int size, int texture,
             int miplevel);
 
         [DllImport("AsyncGPUReadbackPlugin")]
-        private static extern int RequestComputeBufferMainThread(int bufferID, int bufferSize);
+        private static extern int Request_ComputeBuffer(int bufferID, int bufferSize);
 
         [DllImport("AsyncGPUReadbackPlugin")]
-        private static extern unsafe int RequestComputeBufferIntoArrayMainThread(void* buffer, int size, int bufferID,
+        private static extern unsafe int Request_ComputeBufferIntoArray(void* buffer, int size, int bufferID,
             int bufferSize);
 
         [DllImport("AsyncGPUReadbackPlugin")]
         private static extern IntPtr GetKickstartFunctionPtr();
 
         [DllImport("AsyncGPUReadbackPlugin")]
-        private static extern IntPtr UpdateMainThread();
+        private static extern void UpdateMainThread();
 
         [DllImport("AsyncGPUReadbackPlugin")]
         private static extern IntPtr GetUpdateRenderThreadFunctionPtr();
 
         [DllImport("AsyncGPUReadbackPlugin")]
-        private static extern unsafe void GetData(int eventID, ref void* buffer, ref int length);
+        private static extern unsafe bool Task_GetData(int eventID, ref void* buffer, ref int length);
 
         [DllImport("AsyncGPUReadbackPlugin")]
-        private static extern bool TaskError(int eventID);
+        private static extern bool Task_Error(int eventID);
 
         [DllImport("AsyncGPUReadbackPlugin")]
-        private static extern bool TaskExists(int eventID);
+        private static extern bool Task_Exists(int eventID);
 
         [DllImport("AsyncGPUReadbackPlugin")]
-        private static extern bool TaskDone(int eventID);
+        private static extern bool Task_Done(int eventID);
 
         [DllImport("AsyncGPUReadbackPlugin")]
-        private static extern void WaitForCompletion(int eventID);
+        private static extern void Task_WaitForCompletion(int eventID);
     }
 }

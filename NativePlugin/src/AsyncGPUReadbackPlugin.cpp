@@ -361,7 +361,7 @@ auto InsertEvent(std::shared_ptr<BaseTask> task) -> EventId {
  * @param texture OpenGL texture id
  * @return event_id to give to other functions and to IssuePluginEvent
  */
-auto RequestTextureMainThread(GLuint texture, int miplevel) -> EventId {
+auto Request_Texture(GLuint texture, int miplevel) -> EventId {
   // Create the task
   std::shared_ptr<FrameTask> task = std::make_shared<FrameTask>();
   task->texture = texture;
@@ -369,22 +369,21 @@ auto RequestTextureMainThread(GLuint texture, int miplevel) -> EventId {
   return InsertEvent(std::move(task));
 }
 
-auto RequestTextureIntoArrayMainThread(void* data, size_t size, GLuint texture, int miplevel) -> EventId {
+auto Request_TextureIntoArray(void* data, size_t size, GLuint texture, int miplevel) -> EventId {
   std::shared_ptr<FrameTask> task = std::make_shared<FrameTask>(data, size);
   task->texture = texture;
   task->miplevel = miplevel;
   return InsertEvent(std::move(task));
 }
 
-auto RequestComputeBufferMainThread(GLuint computeBuffer, GLint bufferSize) -> EventId {
+auto Request_ComputeBuffer(GLuint computeBuffer, GLint bufferSize) -> EventId {
   // Create the task
   std::shared_ptr<SsboTask> task = std::make_shared<SsboTask>();
   task->Init(computeBuffer, bufferSize);
   return InsertEvent(std::move(task));
 }
 
-auto RequestComputeBufferIntoArrayMainThread(void* data, size_t size, GLuint computeBuffer, GLint bufferSize)
-    -> EventId {
+auto Request_ComputeBufferIntoArray(void* data, size_t size, GLuint computeBuffer, GLint bufferSize) -> EventId {
   // Create the task
   std::shared_ptr<SsboTask> task = std::make_shared<SsboTask>(data, size);
   task->Init(computeBuffer, bufferSize);
@@ -448,26 +447,30 @@ void UpdateMainThread() {
  * @brief Get data from the main thread.
  * The data owner is still native plugin, outside caller should copy the data asap to avoid any problem.
  *
+ * @return true if data received
+ * @return false otherwise
  */
-void GetData(EventId event_id, void** buffer, size_t* length) {
+auto Task_GetData(EventId event_id, void** buffer, size_t* length) -> bool {
   // Get task back
   std::scoped_lock guard(tasks_mutex);
   auto iter = FindEvent(event_id);
 
   // Do something only if initialized (thread safety)
-  if (iter == tasks.cend() || !iter->task->done) [[unlikely]] { return; }
+  if (iter == tasks.cend() || !iter->task->done) [[unlikely]] { return false; }
 
   // Return the pointer.
   // The memory ownership doesn't transfer.
   auto dataPtr = iter->task->GetData(length);
   *buffer = dataPtr;
+
+  return true;
 }
 
 /**
  * @brief Check if request exists
  * @param event_id containing the the task index, given by makeRequest_mainThread
  */
-auto TaskExists(EventId event_id) -> bool {
+auto Task_Exists(EventId event_id) -> bool {
   // Get task back
   std::scoped_lock guard(tasks_mutex);
   return FindEvent(event_id) != tasks.cend();
@@ -477,7 +480,7 @@ auto TaskExists(EventId event_id) -> bool {
  * @brief Check if request is done
  * @param event_id containing the the task index, given by makeRequest_mainThread
  */
-auto TaskDone(EventId event_id) -> bool {
+auto Task_Done(EventId event_id) -> bool {
   // Get task back
   std::scoped_lock guard(tasks_mutex);
   auto ite = FindEvent(event_id);
@@ -490,7 +493,7 @@ auto TaskDone(EventId event_id) -> bool {
  * @brief Check if request is in error
  * @param event_id containing the the task index, given by makeRequest_mainThread
  */
-auto TaskError(EventId event_id) -> bool {
+auto Task_Error(EventId event_id) -> bool {
   // Get task back
   std::scoped_lock guard(tasks_mutex);
   auto ite = FindEvent(event_id);
@@ -500,7 +503,7 @@ auto TaskError(EventId event_id) -> bool {
   return true;  // It's disposed, assume as error.
 }
 
-void WaitForCompletion(EventId event_id) {
+void Task_WaitForCompletion(EventId event_id) {
   std::shared_ptr<BaseTask> task;
 
   // get the task first
