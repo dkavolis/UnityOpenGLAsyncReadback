@@ -1,20 +1,25 @@
-﻿using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
+﻿using UnityEngine;
 
-namespace Yangrc.OpenGLAsyncReadback {
+// ReSharper disable once CheckNamespace
+namespace Yangrc.OpenGLAsyncReadback
+{
     /// <summary>
     /// A helper class to trigger readback update every frame.
     /// </summary>
     [AddComponentMenu("")]
-    public class AsyncReadbackUpdater : MonoBehaviour {
-        public static AsyncReadbackUpdater instance;
-        private void Awake() {
-            instance = this;
+    public class AsyncReadbackUpdater : MonoBehaviour
+    {
+        public static AsyncReadbackUpdater Instance;
+
+        private void Awake()
+        {
+            Instance = this;
         }
-        void Update() {
+
+        private void Update()
+        {
             OpenGLAsyncReadbackRequest.Update();
-            RenderTextureRegistery.ClearDeadRefs();
+            RenderTextureRegistry.ClearDeadRefs();
         }
     }
 }
