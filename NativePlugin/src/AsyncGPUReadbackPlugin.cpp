@@ -10,11 +10,6 @@
 
 #include "TypeHelpers.hpp"
 
-#ifdef DEBUG
-#  include <fstream>
-#  include <thread>
-#endif
-
 struct BaseTask;
 struct SsboTask;
 struct FrameTask;
@@ -22,16 +17,15 @@ struct FrameTask;
 static IUnityGraphics* graphics = nullptr;
 static UnityGfxRenderer renderer = kUnityGfxRendererNull;
 
-static std::map<int, std::shared_ptr<BaseTask>> tasks;  // NOLINT(cert-err58-cpp)
-static std::vector<int> pending_release_tasks;
-static std::mutex tasks_mutex;
-int next_event_id = 1;
+struct TaskEntry {
+  EventId id;
+  std::shared_ptr<BaseTask> task = nullptr;
+};
 
-// Call this on a function parameter to suppress the unused parameter warning
-template <class T>
-inline void unused(T const& result) {
-  static_cast<void>(result);
-}
+static std::vector<TaskEntry> tasks;  // unlikely to be large so a lookup in sorted array may be faster than std::map
+static std::vector<EventId> pending_release_tasks;
+static std::mutex tasks_mutex;
+EventId next_event_id = 1;
 
 struct BaseTask {
   // These vars might be accessed from both render thread and main thread. guard them.
@@ -289,12 +283,35 @@ void OnGraphicsDeviceEvent(UnityGfxDeviceEventType eventType) {
  */
 auto CheckCompatible() -> bool { return (renderer == kUnityGfxRendererOpenGLCore); }
 
-auto InsertEvent(std::shared_ptr<BaseTask> task) -> int {
-  int event_id = next_event_id;
-  next_event_id++;
+[[nodiscard]] auto LowerBound(EventId event_id) noexcept {
+  return std::lower_bound(tasks.cbegin(), tasks.cend(), event_id,
+                          [](TaskEntry const& entry, EventId id) noexcept { return entry.id < id; });
+}
+
+[[nodiscard]] auto FindEvent(EventId event_id) noexcept {
+  auto pos = LowerBound(event_id);
+  if (pos != tasks.cend() && pos->id == event_id) [[likely]]
+    return pos;
+  return tasks.cend();
+}
+
+auto InsertEvent(std::shared_ptr<BaseTask> task) -> EventId {
+  EventId event_id = next_event_id++;
 
   std::scoped_lock guard(tasks_mutex);
-  tasks[event_id] = std::move(task);
+
+  if (tasks.back().id < event_id) [[likely]] {
+    tasks.emplace_back(TaskEntry{
+        .id = event_id,
+        .task = std::move(task),
+    });
+  } else {
+    // in the unlikely event of overflow
+    tasks.insert(LowerBound(event_id), TaskEntry{
+                                           .id = event_id,
+                                           .task = std::move(task),
+                                       });
+  }
 
   return event_id;
 }
@@ -307,19 +324,19 @@ auto InsertEvent(std::shared_ptr<BaseTask> task) -> int {
  * @param texture OpenGL texture id
  * @return event_id to give to other functions and to IssuePluginEvent
  */
-auto RequestTextureMainThread(GLuint texture, int miplevel) -> int {
+auto RequestTextureMainThread(GLuint texture, int miplevel) -> EventId {
   // Create the task
   std::shared_ptr<FrameTask> task = std::make_shared<FrameTask>();
   task->texture = texture;
   task->miplevel = miplevel;
-  return InsertEvent(task);
+  return InsertEvent(std::move(task));
 }
 
-auto RequestComputeBufferMainThread(GLuint computeBuffer, GLint bufferSize) -> int {
+auto RequestComputeBufferMainThread(GLuint computeBuffer, GLint bufferSize) -> EventId {
   // Create the task
   std::shared_ptr<SsboTask> task = std::make_shared<SsboTask>();
   task->Init(computeBuffer, bufferSize);
-  return InsertEvent(task);
+  return InsertEvent(std::move(task));
 }
 
 /**
@@ -327,10 +344,10 @@ auto RequestComputeBufferMainThread(GLuint computeBuffer, GLint bufferSize) -> i
  * Has to be called by GL.IssuePluginEvent
  * @param event_id containing the the task index, given by makeRequest_mainThread
  */
-void KickstartRequestInRenderThread(int event_id) {
+void KickstartRequestInRenderThread(EventId event_id) {
   // Get task back
   std::scoped_lock guard(tasks_mutex);
-  std::shared_ptr<BaseTask> task = tasks[event_id];
+  std::shared_ptr<BaseTask> task = FindEvent(event_id)->task;  // always called with a valid id
   task->StartRequest();
   // Done init
   task->initialized = true;
@@ -341,12 +358,11 @@ auto GetKickstartFunctionPtr() -> UnityRenderingEvent { return KickstartRequestI
 /**
  * Update all current available tasks. Should be called in render thread.
  */
-void UpdateRenderThread(int event_id) {
-  unused(event_id);
+void UpdateRenderThread(EventId /* event_id */) {
   // Lock up.
   std::scoped_lock guard(tasks_mutex);
-  for (auto& ite : tasks) {
-    auto task = ite.second;
+  for (auto& entry : tasks) {
+    auto const& task = entry.task;
     if (task != nullptr && task->initialized && !task->done) task->Update();
   }
 }
@@ -364,16 +380,15 @@ void UpdateMainThread() {
   std::scoped_lock guard(tasks_mutex);
 
   // Remove tasks that are done in the last update.
-  for (auto& event_id : pending_release_tasks) {
-    auto t = tasks.find(event_id);
-    if (t != tasks.end()) { tasks.erase(t); }
-  }
+  std::erase_if(tasks, [](TaskEntry const& entry) noexcept {
+    return std::find(pending_release_tasks.cbegin(), pending_release_tasks.cend(), entry.id) !=
+           pending_release_tasks.cend();
+  });
   pending_release_tasks.clear();
 
   // Push new done tasks to pending list.
-  for (auto& ite : tasks) {
-    auto task = ite.second;
-    if (task->done) { pending_release_tasks.push_back(ite.first); }
+  for (auto& entry : tasks) {
+    if (entry.task->done) { pending_release_tasks.push_back(entry.id); }
   }
 }
 
@@ -382,17 +397,17 @@ void UpdateMainThread() {
  * The data owner is still native plugin, outside caller should copy the data asap to avoid any problem.
  *
  */
-void GetData(int event_id, void** buffer, size_t* length) {
+void GetData(EventId event_id, void** buffer, size_t* length) {
   // Get task back
   std::scoped_lock guard(tasks_mutex);
-  std::shared_ptr<BaseTask> task = tasks[event_id];
+  auto iter = FindEvent(event_id);
 
   // Do something only if initialized (thread safety)
-  if (!task->done) { return; }
+  if (iter == tasks.cend() || !iter->task->done) [[unlikely]] { return; }
 
   // Return the pointer.
   // The memory ownership doesn't transfer.
-  auto dataPtr = task->GetData(length);
+  auto dataPtr = iter->task->GetData(length);
   *buffer = dataPtr;
 }
 
@@ -400,23 +415,22 @@ void GetData(int event_id, void** buffer, size_t* length) {
  * @brief Check if request exists
  * @param event_id containing the the task index, given by makeRequest_mainThread
  */
-auto TaskExists(int event_id) -> bool {
+auto TaskExists(EventId event_id) -> bool {
   // Get task back
   std::scoped_lock guard(tasks_mutex);
-  bool result = tasks.find(event_id) != tasks.end();
-
-  return result;
+  return FindEvent(event_id) != tasks.cend();
 }
 
 /**
  * @brief Check if request is done
  * @param event_id containing the the task index, given by makeRequest_mainThread
  */
-auto TaskDone(int event_id) -> bool {
+auto TaskDone(EventId event_id) -> bool {
   // Get task back
   std::scoped_lock guard(tasks_mutex);
-  auto ite = tasks.find(event_id);
-  if (ite != tasks.end()) return ite->second->done;
+  auto ite = FindEvent(event_id);
+  if (ite != tasks.cend()) [[likely]]
+    return ite->task->done;
   return true;  // If it's disposed, also assume it's done.
 }
 
@@ -424,11 +438,12 @@ auto TaskDone(int event_id) -> bool {
  * @brief Check if request is in error
  * @param event_id containing the the task index, given by makeRequest_mainThread
  */
-auto TaskError(int event_id) -> bool {
+auto TaskError(EventId event_id) -> bool {
   // Get task back
   std::scoped_lock guard(tasks_mutex);
-  auto ite = tasks.find(event_id);
-  if (ite != tasks.end()) return ite->second->error;
+  auto ite = FindEvent(event_id);
+  if (ite != tasks.end()) [[likely]]
+    return ite->task->error;
 
   return true;  // It's disposed, assume as error.
 }
