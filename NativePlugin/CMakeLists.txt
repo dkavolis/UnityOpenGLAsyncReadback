@@ -50,4 +50,10 @@ if(dirname)
   set(outdir ${CMAKE_CURRENT_SOURCE_DIR}/../UnityExampleProject/Assets/OpenglAsyncReadback/Plugins/${dirname})
   add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}>
                                                                ${outdir}/$<TARGET_FILE_NAME:${PROJECT_NAME}>)
+
+  if(MSVC AND CMAKE_BUILD_TYPE MATCHES "Debug|RelWithDebInfo")
+    add_custom_command(
+      TARGET ${PROJECT_NAME} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:${PROJECT_NAME}>
+                                                ${outdir}/$<TARGET_PDB_FILE_NAME:${PROJECT_NAME}>)
+  endif()
 endif()
