@@ -4,6 +4,7 @@ project(AsyncGPUReadbackPlugin LANGUAGES C CXX)
 set(HEADERS
     src/TypeHelpers.hpp
     src/AsyncGPUReadbackPlugin.hpp
+    src/AsyncGPUReadbackPluginAPI.hpp
     src/Unity/IUnityGraphics.h
     src/Unity/IUnityGraphicsD3D9.h
     src/Unity/IUnityGraphicsD3D11.h
@@ -11,7 +12,7 @@ set(HEADERS
     src/Unity/IUnityGraphicsMetal.h
     src/Unity/IUnityGraphicsVulkan.h
     src/Unity/IUnityInterface.h)
-set(SOURCES src/AsyncGPUReadbackPlugin.cpp)
+set(SOURCES src/AsyncGPUReadbackPlugin.cpp src/AsyncGPUReadbackPluginAPI.cpp)
 
 find_package(OpenGL REQUIRED)
 include_directories(${OpenGL_INCLUDE_DIR})

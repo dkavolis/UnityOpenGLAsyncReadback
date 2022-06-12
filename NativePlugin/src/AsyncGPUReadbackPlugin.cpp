@@ -1,24 +1,16 @@
 #include "AsyncGPUReadbackPlugin.hpp"
 
 #include <algorithm>
-#include <atomic>
-#include <cstddef>
+#include <condition_variable>
 #include <cstring>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <vector>
 
 #include "TypeHelpers.hpp"
 
-struct BaseTask;
-struct SsboTask;
-struct FrameTask;
+class BaseTask;
+class SsboTask;
+class FrameTask;
 
-static IUnityGraphics* graphics = nullptr;
-static UnityGfxRenderer renderer = kUnityGfxRendererNull;
-
-struct TaskEntry {
+struct Request {
   EventId id;
   std::shared_ptr<BaseTask> task = nullptr;
 };
@@ -29,13 +21,13 @@ struct TaskEntry {
 class Buffer {
  public:
   Buffer() noexcept = default;
-  Buffer(void* data, size_t length) noexcept : data_(data), length_(length) {}
+  Buffer(void* dst, size_t length) noexcept : data_(dst), length_(length) {}
 
   [[nodiscard]] auto data() const noexcept -> void* { return data_; }
   [[nodiscard]] auto size() const noexcept -> size_t { return length_; }
 
-  void set(void* data, size_t length) noexcept {
-    data_ = data;
+  void set(void* dst, size_t length) noexcept {
+    data_ = dst;
     length_ = length;
   }
 
@@ -55,451 +47,413 @@ class Buffer {
   std::unique_ptr<char[]> storage_ = nullptr;
 };
 
-static std::vector<TaskEntry> tasks;  // unlikely to be large so a lookup in sorted array may be faster than std::map
-static std::vector<EventId> pending_release_tasks;
-static std::mutex tasks_mutex;
-EventId next_event_id = 1;
-
-struct BaseTask {
-  // These vars might be accessed from both render thread and main thread. guard them.
-  std::atomic<bool> initialized = false;
-  std::atomic<bool> error = false;
-  std::atomic<bool> done = false;
-  /*Called in render thread*/
-  virtual void StartRequest() = 0;
-  virtual void Update() = 0;
-
+class BaseTask {
+ public:
   BaseTask() noexcept = default;
-  BaseTask(void* data, size_t length) noexcept : result_(data, length) {}
+  BaseTask(void* dst, size_t length) noexcept : result_(dst, length) {}
   BaseTask(BaseTask const&) noexcept = delete;
   BaseTask(BaseTask&&) noexcept = delete;
   auto operator=(BaseTask const&) noexcept = delete;
   auto operator=(BaseTask&&) noexcept = delete;
   virtual ~BaseTask() noexcept = default;
 
-  auto GetData(size_t* length) -> void* {
-    if (!done || error) { return nullptr; }
-    std::scoped_lock guard(mainthread_data_mutex);
-    *length = result_.size();
+  virtual void update() = 0;
+
+  [[nodiscard]] auto is_initialized() const noexcept -> bool { return initialized_; }
+  [[nodiscard]] auto is_done() const noexcept -> bool { return done_; }
+  [[nodiscard]] auto has_error() const noexcept -> bool { return error_; }
+
+  auto get_data(size_t& length) -> void* {
+    if (!done_ || error_) { return nullptr; }
+    std::scoped_lock guard(mutex_);
+    length = result_.size();
     return result_.data();
   }
 
-  [[nodiscard]] auto BufferSize(size_t other) const noexcept -> size_t { return std::min(result_.size(), other); }
+  void start_request() {
+    on_start_request();
+    initialized_ = true;
+  }
 
  protected:
-  auto AllocateOrGet(size_t length) -> void* { return result_.allocate_if_null(length); }
+  virtual void on_start_request() = 0;
+
+  void set_data_and_done(void* data, size_t length) {
+    {
+      std::scoped_lock guard(mutex_);
+      void* dst = result_.allocate_if_null(length);
+      std::memcpy(dst, data, std::min(result_.size(), length));
+    }
+    done_ = true;
+  }
 
   /*
   Called by subclass to mark as error.
   */
-  void ErrorOut() {
-    error = true;
-    done = true;
+  void set_error_and_done() {
+    error_ = true;
+    done_ = true;
   }
 
  private:
-  std::mutex mainthread_data_mutex;
   Buffer result_;
+  std::mutex mutex_;
+
+  std::atomic<bool> initialized_ = false;
+  std::atomic<bool> error_ = false;
+  std::atomic<bool> done_ = false;
 };
 
 /*Task for readback from ssbo. Which is compute buffer in Unity
  */
-struct SsboTask : public BaseTask {
-  GLuint ssbo = 0;
-  GLuint pbo = 0;
-  GLsync fence = nullptr;
-  GLint bufferSize = 0;
-
+class SsboTask : public BaseTask {
+ public:
   using BaseTask::BaseTask;
 
-  void Init(GLuint _ssbo, GLint _bufferSize) {
-    this->ssbo = _ssbo;
-    this->bufferSize = _bufferSize;
+  void init(GLuint _ssbo, GLint _bufferSize) {
+    this->ssbo_ = _ssbo;
+    this->buffer_size_ = _bufferSize;
   }
 
-  void StartRequest() override {
+  void update() override {
+    // Check fence state
+    GLint status = 0;
+    GLsizei length = 0;
+    glGetSynciv(fence_, GL_SYNC_STATUS, sizeof(GLint), &length, &status);
+    if (length <= 0) {
+      set_error_and_done();
+      clean_up();
+      return;
+    }
+
+    // When it's done
+    if (status == GL_SIGNALED) {
+      // Bind back the pbo
+      glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo_);
+
+      // Map the buffer and copy it to data
+      void* ptr = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, buffer_size_, GL_MAP_READ_BIT);
+
+      // Allocate the final data buffer !!! WARNING: free, will have to be done on script side !!!!
+      set_data_and_done(ptr, buffer_size_);
+
+      // Unmap and unbind
+      glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+      glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+      clean_up();
+    }
+  }
+
+ protected:
+  void on_start_request() override {
     // bind it to GL_COPY_WRITE_BUFFER to wait for use
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, this->ssbo);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, this->ssbo_);
 
     // Get our pbo ready.
-    glGenBuffers(1, &pbo);
-    glBindBuffer(GL_PIXEL_PACK_BUFFER, this->pbo);
+    glGenBuffers(1, &pbo_);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, this->pbo_);
     // Initialize pbo buffer storage.
-    glBufferData(GL_PIXEL_PACK_BUFFER, bufferSize, nullptr, GL_STREAM_READ);
+    glBufferData(GL_PIXEL_PACK_BUFFER, buffer_size_, nullptr, GL_STREAM_READ);
 
     // Copy data to pbo.
-    glCopyBufferSubData(GL_SHADER_STORAGE_BUFFER, GL_PIXEL_PACK_BUFFER, 0, 0, bufferSize);
+    glCopyBufferSubData(GL_SHADER_STORAGE_BUFFER, GL_PIXEL_PACK_BUFFER, 0, 0, buffer_size_);
 
     // Unbind buffers.
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
     // Create a fence.
-    fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    fence_ = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
   }
 
-  void Update() override {
+  void clean_up() {
+    if (pbo_ != 0) {
+      // Clear buffers
+      glDeleteBuffers(1, &(pbo_));
+    }
+    if (fence_ != nullptr) { glDeleteSync(fence_); }
+  }
+
+ private:
+  GLuint ssbo_ = 0;
+  GLuint pbo_ = 0;
+  GLsync fence_ = nullptr;
+  GLint buffer_size_ = 0;
+};
+
+/*Task for readback texture.
+ */
+class FrameTask : public BaseTask {
+ public:
+  using BaseTask::BaseTask;
+
+  void init(GLuint texture, int miplevel) {
+    texture_ = texture;
+    miplevel_ = miplevel;
+  }
+
+  void update() override {
     // Check fence state
     GLint status = 0;
     GLsizei length = 0;
-    glGetSynciv(fence, GL_SYNC_STATUS, sizeof(GLint), &length, &status);
+    glGetSynciv(fence_, GL_SYNC_STATUS, sizeof(GLint), &length, &status);
     if (length <= 0) {
-      ErrorOut();
-      Cleanup();
+      set_error_and_done();
+      clean_up();
       return;
     }
 
     // When it's done
     if (status == GL_SIGNALED) {
       // Bind back the pbo
-      glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
+      glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo_);
 
       // Map the buffer and copy it to data
-      void* ptr = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, bufferSize, GL_MAP_READ_BIT);
-
-      // Allocate the final data buffer !!! WARNING: free, will have to be done on script side !!!!
-      void* data = AllocateOrGet(bufferSize);
-      std::memcpy(data, ptr, BufferSize(bufferSize));
-      this->done = true;
+      void* ptr = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, size_, GL_MAP_READ_BIT);
+      set_data_and_done(ptr, size_);
 
       // Unmap and unbind
       glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
       glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-      Cleanup();
+      clean_up();
     }
   }
 
-  void Cleanup() {
-    if (pbo != 0) {
-      // Clear buffers
-      glDeleteBuffers(1, &(pbo));
-    }
-    if (fence != nullptr) { glDeleteSync(fence); }
-  }
-};
-
-/*Task for readback texture.
- */
-struct FrameTask : public BaseTask {
-  int size = 0;
-  GLsync fence = nullptr;
-  GLuint texture = 0;
-  GLuint fbo = 0;
-  GLuint pbo = 0;
-  int miplevel = 0;
-  int height = 0;
-  int width = 0;
-  int depth = 0;
-  GLint internal_format = 0;
-
-  using BaseTask::BaseTask;
-
-  void StartRequest() override {
+ protected:
+  void on_start_request() override {
     // Get texture information
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glGetTexLevelParameteriv(GL_TEXTURE_2D, miplevel, GL_TEXTURE_WIDTH, &(width));
-    glGetTexLevelParameteriv(GL_TEXTURE_2D, miplevel, GL_TEXTURE_HEIGHT, &(height));
-    glGetTexLevelParameteriv(GL_TEXTURE_2D, miplevel, GL_TEXTURE_DEPTH, &(depth));
-    glGetTexLevelParameteriv(GL_TEXTURE_2D, miplevel, GL_TEXTURE_INTERNAL_FORMAT, &(internal_format));
-    int pixelBits = getPixelSizeFromInternalFormat(internal_format);
-    size = depth * width * height * pixelBits / 8;
+    glBindTexture(GL_TEXTURE_2D, texture_);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, miplevel_, GL_TEXTURE_WIDTH, &(width_));
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, miplevel_, GL_TEXTURE_HEIGHT, &(height_));
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, miplevel_, GL_TEXTURE_DEPTH, &(depth_));
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, miplevel_, GL_TEXTURE_INTERNAL_FORMAT, &(internal_format_));
+    int pixelBits = getPixelSizeFromInternalFormat(internal_format_);
+    size_ = depth_ * width_ * height_ * pixelBits / 8;
     // Check for errors
-    if (size == 0 || pixelBits % 8 != 0  // Only support textures aligned to one byte.
-        || getFormatFromInternalFormat(internal_format) == 0 || getTypeFromInternalFormat(internal_format) == 0) {
-      ErrorOut();
+    if (size_ == 0 || pixelBits % 8 != 0  // Only support textures aligned to one byte.
+        || getFormatFromInternalFormat(internal_format_) == 0 || getTypeFromInternalFormat(internal_format_) == 0) {
+      set_error_and_done();
       return;
     }
 
     // Create the fbo (frame buffer object) from the given texture
-    glGenFramebuffers(1, &(fbo));
+    glGenFramebuffers(1, &(fbo_));
 
     // Bind the texture to the fbo
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texture, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
+    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texture_, 0);
 
     // Create and bind pbo (pixel buffer object) to fbo
-    glGenBuffers(1, &(pbo));
-    glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
-    glBufferData(GL_PIXEL_PACK_BUFFER, size, nullptr, GL_DYNAMIC_READ);
+    glGenBuffers(1, &(pbo_));
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo_);
+    glBufferData(GL_PIXEL_PACK_BUFFER, size_, nullptr, GL_DYNAMIC_READ);
 
     // Start the read request
     glReadBuffer(GL_COLOR_ATTACHMENT0);
-    glReadPixels(0, 0, width, height, getFormatFromInternalFormat(internal_format),
-                 getTypeFromInternalFormat(internal_format), nullptr);
+    glReadPixels(0, 0, width_, height_, getFormatFromInternalFormat(internal_format_),
+                 getTypeFromInternalFormat(internal_format_), nullptr);
 
     // Unbind buffers
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     // Fence to know when it's ready
-    fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    fence_ = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
   }
 
-  void Update() override {
-    // Check fence state
-    GLint status = 0;
-    GLsizei length = 0;
-    glGetSynciv(fence, GL_SYNC_STATUS, sizeof(GLint), &length, &status);
-    if (length <= 0) {
-      ErrorOut();
-      Cleanup();
-      return;
-    }
-
-    // When it's done
-    if (status == GL_SIGNALED) {
-      // Bind back the pbo
-      glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
-
-      // Map the buffer and copy it to data
-      void* ptr = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, size, GL_MAP_READ_BIT);
-      void* data = AllocateOrGet(size);
-      std::memcpy(data, ptr, BufferSize(size));
-      this->done = true;
-
-      // Unmap and unbind
-      glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
-      glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-      Cleanup();
-    }
-  }
-
-  void Cleanup() {
+  void clean_up() {
     // Clear buffers
-    if (fbo != 0) glDeleteFramebuffers(1, &(fbo));
-    if (pbo != 0) glDeleteBuffers(1, &(pbo));
-    if (fence != nullptr) glDeleteSync(fence);
+    if (fbo_ != 0) glDeleteFramebuffers(1, &(fbo_));
+    if (pbo_ != 0) glDeleteBuffers(1, &(pbo_));
+    if (fence_ != nullptr) glDeleteSync(fence_);
   }
+
+ private:
+  int size_ = 0;
+  GLsync fence_ = nullptr;
+  GLuint texture_ = 0;
+  GLuint fbo_ = 0;
+  GLuint pbo_ = 0;
+  int miplevel_ = 0;
+  int height_ = 0;
+  int width_ = 0;
+  int depth_ = 0;
+  GLint internal_format_ = 0;
 };
 
-/**
- * Unity plugin load event
- */
-void UnityPluginLoad(IUnityInterfaces* unityInterfaces) {
-  graphics = unityInterfaces->Get<IUnityGraphics>();
-  graphics->RegisterDeviceEventCallback(OnGraphicsDeviceEvent);
-
-  // Run OnGraphicsDeviceEvent(initialize) manually on plugin load
-  // to not miss the event in case the graphics device is already initialized
-  OnGraphicsDeviceEvent(kUnityGfxDeviceEventInitialize);
-
-  if (CheckCompatible()) { glewInit(); }
+auto Plugin::instance() noexcept -> Plugin& {
+  static Plugin plugin;
+  return plugin;
 }
 
-/**
- * Unity unload plugin event
- */
-void UnityPluginUnload() { graphics->UnregisterDeviceEventCallback(OnGraphicsDeviceEvent); }
-
-/**
- * Called for every graphics device events
- */
-void OnGraphicsDeviceEvent(UnityGfxDeviceEventType eventType) {
-  // Create graphics API implementation upon initialization
-  if (eventType == kUnityGfxDeviceEventInitialize) { renderer = graphics->GetRenderer(); }
-
-  // Cleanup graphics API implementation upon shutdown
-  if (eventType == kUnityGfxDeviceEventShutdown) { renderer = kUnityGfxRendererNull; }
-}
-
-/**
- * Check if plugin is compatible with this system
- * This plugin is only compatible with opengl core
- */
-auto CheckCompatible() -> bool { return (renderer == kUnityGfxRendererOpenGLCore); }
-
-[[nodiscard]] auto LowerBound(EventId event_id) noexcept {
-  return std::lower_bound(tasks.cbegin(), tasks.cend(), event_id,
-                          [](TaskEntry const& entry, EventId id) noexcept { return entry.id < id; });
-}
-
-[[nodiscard]] auto FindEvent(EventId event_id) noexcept {
-  auto pos = LowerBound(event_id);
-  if (pos != tasks.cend() && pos->id == event_id) [[likely]]
-    return pos;
-  return tasks.cend();
-}
-
-auto InsertEvent(std::shared_ptr<BaseTask> task) -> EventId {
-  EventId event_id = next_event_id++;
-
-  std::scoped_lock guard(tasks_mutex);
-
-  if (tasks.back().id < event_id) [[likely]] {
-    tasks.emplace_back(TaskEntry{
-        .id = event_id,
-        .task = std::move(task),
-    });
-  } else {
-    // in the unlikely event of overflow
-    tasks.insert(LowerBound(event_id), TaskEntry{
-                                           .id = event_id,
-                                           .task = std::move(task),
-                                       });
-  }
-
-  return event_id;
-}
-
-/**
- * @brief Init of the make request action.
- * You then have to call makeRequest_renderThread
- * via GL.IssuePluginEvent with the returned event_id
- *
- * @param texture OpenGL texture id
- * @return event_id to give to other functions and to IssuePluginEvent
- */
-auto Request_Texture(GLuint texture, int miplevel) -> EventId {
-  // Create the task
+auto Plugin::request_texture(GLuint texture, int miplevel) -> EventId {
   std::shared_ptr<FrameTask> task = std::make_shared<FrameTask>();
-  task->texture = texture;
-  task->miplevel = miplevel;
-  return InsertEvent(std::move(task));
+  task->init(texture, miplevel);
+  return insert(std::move(task));
 }
 
-auto Request_TextureIntoArray(void* data, size_t size, GLuint texture, int miplevel) -> EventId {
-  std::shared_ptr<FrameTask> task = std::make_shared<FrameTask>(data, size);
-  task->texture = texture;
-  task->miplevel = miplevel;
-  return InsertEvent(std::move(task));
+auto Plugin::request_texture(void* buffer, size_t size, GLuint texture, int miplevel) -> EventId {
+  std::shared_ptr<FrameTask> task = std::make_shared<FrameTask>(buffer, size);
+  task->init(texture, miplevel);
+  return insert(std::move(task));
 }
 
-auto Request_ComputeBuffer(GLuint computeBuffer, GLint bufferSize) -> EventId {
-  // Create the task
+auto Plugin::request_compute_buffer(GLuint compute_buffer, GLint buffer_size) -> EventId {
   std::shared_ptr<SsboTask> task = std::make_shared<SsboTask>();
-  task->Init(computeBuffer, bufferSize);
-  return InsertEvent(std::move(task));
+  task->init(compute_buffer, buffer_size);
+  return insert(std::move(task));
 }
 
-auto Request_ComputeBufferIntoArray(void* data, size_t size, GLuint computeBuffer, GLint bufferSize) -> EventId {
-  // Create the task
-  std::shared_ptr<SsboTask> task = std::make_shared<SsboTask>(data, size);
-  task->Init(computeBuffer, bufferSize);
-  return InsertEvent(std::move(task));
+auto Plugin::request_compute_buffer(void* buffer, size_t size, GLuint compute_buffer, GLint buffer_size) -> EventId {
+  std::shared_ptr<SsboTask> task = std::make_shared<SsboTask>(buffer, size);
+  task->init(compute_buffer, buffer_size);
+  return insert(std::move(task));
 }
 
-/**
- * @brief Create a a read texture request
- * Has to be called by GL.IssuePluginEvent
- * @param event_id containing the the task index, given by makeRequest_mainThread
- */
-void KickstartRequestInRenderThread(EventId event_id) {
-  // Get task back
-  std::scoped_lock guard(tasks_mutex);
-  std::shared_ptr<BaseTask> task = FindEvent(event_id)->task;  // always called with a valid id
-  task->StartRequest();
-  // Done init
-  task->initialized = true;
-}
-
-auto GetKickstartFunctionPtr() -> UnityRenderingEvent { return KickstartRequestInRenderThread; }
-
-/**
- * Update all current available tasks. Should be called in render thread.
- */
-void UpdateRenderThread(EventId /* event_id */) {
-  // Lock up.
-  std::scoped_lock guard(tasks_mutex);
-  for (auto& entry : tasks) {
-    auto const& task = entry.task;
-    if (task != nullptr && task->initialized && !task->done) task->Update();
-  }
-}
-
-auto GetUpdateRenderThreadFunctionPtr() -> UnityRenderingEvent { return UpdateRenderThread; }
-
-/**
- * Update in main thread.
- * This will erase tasks that are marked as done in last frame.
- * Also save tasks that are done this frame.
- * By doing this, all tasks are done for one frame, then removed.
- */
-void UpdateMainThread() {
-  // Lock up.
-  std::scoped_lock guard(tasks_mutex);
+void Plugin::update_once() {
+  std::scoped_lock guard(mutex_);
 
   // Remove tasks that are done in the last update.
-  std::erase_if(tasks, [](TaskEntry const& entry) noexcept {
-    return std::find(pending_release_tasks.cbegin(), pending_release_tasks.cend(), entry.id) !=
-           pending_release_tasks.cend();
-  });
-  pending_release_tasks.clear();
+  if (!pending_release_.empty()) {
+    std::erase_if(requests_, [this](Request const& request) {
+      auto iter = std::lower_bound(pending_release_.cbegin(), pending_release_.cend(), request.id);
+      bool erased = iter != pending_release_.cend() && *iter == request.id;
+      if (erased && on_destruct_ != nullptr) on_destruct_(request.id);
+      return erased;
+    });
+    pending_release_.clear();
+  }
 
   // Push new done tasks to pending list.
-  for (auto& entry : tasks) {
-    if (entry.task->done) { pending_release_tasks.push_back(entry.id); }
+  for (auto& request : requests_) {
+    if (request.task->is_done()) { pending_release_.push_back(request.id); }
   }
+
+  issue_plugin_event_([](EventId /* event_id */) { instance().update_render_thread_once(); }, 0);
 }
 
-/**
- * @brief Get data from the main thread.
- * The data owner is still native plugin, outside caller should copy the data asap to avoid any problem.
- *
- * @return true if data received
- * @return false otherwise
- */
-auto Task_GetData(EventId event_id, void** buffer, size_t* length) -> bool {
-  // Get task back
-  std::scoped_lock guard(tasks_mutex);
-  auto iter = FindEvent(event_id);
+auto Plugin::get_data(EventId event_id, void*& buffer, size_t& length) -> bool {
+  std::scoped_lock guard(mutex_);
+  auto iter = find(event_id);
 
   // Do something only if initialized (thread safety)
-  if (iter == tasks.cend() || !iter->task->done) [[unlikely]] { return false; }
+  if (iter == requests_.cend() || !iter->task->is_done() || iter->task->has_error()) [[unlikely]] { return false; }
 
   // Return the pointer.
   // The memory ownership doesn't transfer.
-  *buffer = iter->task->GetData(length);
+  buffer = iter->task->get_data(length);
 
   return true;
 }
 
-/**
- * @brief Check if request exists
- * @param event_id containing the the task index, given by makeRequest_mainThread
- */
-auto Task_Exists(EventId event_id) -> bool {
-  // Get task back
-  std::scoped_lock guard(tasks_mutex);
-  return FindEvent(event_id) != tasks.cend();
+auto Plugin::exists(EventId event_id) const -> bool {
+  std::scoped_lock guard(mutex_);
+  return find(event_id) != requests_.cend();
 }
 
-/**
- * @brief Check if request is done
- * @param event_id containing the the task index, given by makeRequest_mainThread
- */
-auto Task_Done(EventId event_id) -> bool {
-  // Get task back
-  std::scoped_lock guard(tasks_mutex);
-  auto ite = FindEvent(event_id);
-  if (ite != tasks.cend()) [[likely]]
-    return ite->task->done;
+auto Plugin::is_done(EventId event_id) const -> bool {
+  std::scoped_lock guard(mutex_);
+  auto ite = find(event_id);
+  if (ite != requests_.cend()) [[likely]]
+    return ite->task->is_done();
   return true;  // If it's disposed, also assume it's done.
 }
 
-/**
- * @brief Check if request is in error
- * @param event_id containing the the task index, given by makeRequest_mainThread
- */
-auto Task_Error(EventId event_id) -> bool {
-  // Get task back
-  std::scoped_lock guard(tasks_mutex);
-  auto ite = FindEvent(event_id);
-  if (ite != tasks.end()) [[likely]]
-    return ite->task->error;
+auto Plugin::has_error(EventId event_id) const -> bool {
+  std::scoped_lock guard(mutex_);
+  auto ite = find(event_id);
+  if (ite != requests_.end()) [[likely]]
+    return ite->task->has_error();
 
   return true;  // It's disposed, assume as error.
 }
 
-void Task_WaitForCompletion(EventId event_id) {
+void Plugin::wait_for_completion(EventId event_id) const {
   std::shared_ptr<BaseTask> task;
 
   // get the task first
   {
-    std::scoped_lock guard(tasks_mutex);
-    auto iter = FindEvent(event_id);
-    if (iter != tasks.cend() || iter->task->done) return;
+    std::scoped_lock guard(mutex_);
+    auto iter = find(event_id);
+    if (iter != requests_.cend() || iter->task->is_done()) return;
     task = iter->task;
   }
 
-  while (!task->done) { UpdateRenderThread(0); }
+  // using example from https://en.cppreference.com/w/cpp/thread/condition_variable
+  static std::mutex mutex;
+  static std::condition_variable cv;
+  static bool event_complete = false;
+
+  while (!task->is_done()) {
+    std::unique_lock lock(mutex);
+    event_complete = false;
+
+    // can only update tasks from render thread
+    // don't update main thread since this blocks it, the completed tasks will then not be destroyed until the next
+    // frame
+    issue_plugin_event_(
+        [](EventId /* event_id */) {
+          instance().update_render_thread_once();
+
+          std::lock_guard lock(mutex);
+          event_complete = true;
+          cv.notify_one();
+        },
+        0);
+
+    cv.wait(lock, [] { return event_complete; });
+  }
+}
+
+void Plugin::update_render_thread_once() {
+  std::scoped_lock guard(mutex_);
+  for (auto const& request : requests_) {
+    auto const& task = request.task;
+    if (task != nullptr && task->is_initialized() && !task->is_done()) task->update();
+  }
+}
+
+auto Plugin::insert_pos(EventId event_id) const -> Plugin::request_iterator {
+  return std::lower_bound(requests_.cbegin(), requests_.cend(), event_id,
+                          [](Request const& task, EventId id) noexcept { return task.id < id; });
+}
+
+auto Plugin::find(EventId event_id) const -> Plugin::request_iterator {
+  auto pos = insert_pos(event_id);
+  if (pos != requests_.cend() && pos->id == event_id) [[likely]]
+    return pos;
+  return requests_.cend();
+}
+
+auto Plugin::insert(std::shared_ptr<BaseTask> task) -> EventId {
+  EventId event_id = next_event_id_++;
+
+  {
+    std::scoped_lock guard(mutex_);
+
+    if (requests_.back().id < event_id) [[likely]] {
+      requests_.emplace_back(Request{
+          .id = event_id,
+          .task = std::move(task),
+      });
+    } else {
+      // in the unlikely event of overflow
+      requests_.insert(insert_pos(event_id), Request{
+                                                 .id = event_id,
+                                                 .task = std::move(task),
+                                             });
+    }
+  }
+
+  issue_plugin_event_(
+      [](EventId id) {
+        Plugin& plugin = instance();
+
+        std::scoped_lock guard(plugin.mutex_);
+        std::shared_ptr<BaseTask> task = plugin.find(id)->task;  // always valid id
+        task->start_request();
+      },
+      event_id);
+
+  return event_id;
 }
