@@ -33,7 +33,7 @@ namespace Yangrc.OpenGLAsyncReadback
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <returns></returns>
-        public NativeArray<T> GetData<T>() where T : struct
+        public NativeArray<T> GetData<T>() where T : unmanaged
         {
             return isPlugin ? oRequest.GetRawData<T>() : uRequest.GetData<T>();
         }
@@ -42,6 +42,12 @@ namespace Yangrc.OpenGLAsyncReadback
         {
             if (isPlugin) oRequest.WaitForCompletion();
             else uRequest.WaitForCompletion();
+        }
+
+        public void ReleaseNativeArray()
+        {
+            // unity readback requests need to WaitForCompletion to release their hold on requests into native arrays
+            if (!isPlugin) uRequest.WaitForCompletion();
         }
 
         public bool valid => !isPlugin || oRequest.Valid();
