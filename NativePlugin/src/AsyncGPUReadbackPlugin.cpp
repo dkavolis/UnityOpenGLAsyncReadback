@@ -1,6 +1,7 @@
 #include "AsyncGPUReadbackPlugin.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <condition_variable>
 #include <cstring>
 
@@ -329,6 +330,7 @@ void Plugin::update_once() {
     if (request.task->is_done()) { pending_release_.push_back(request.id); }
   }
 
+  assert(issue_plugin_event_ != nullptr);
   issue_plugin_event_([](EventId /* event_id */) { instance().update_render_thread_once(); }, 0);
 }
 
@@ -384,6 +386,7 @@ void Plugin::wait_for_completion(EventId event_id) const {
   static std::condition_variable cv;
   static bool event_complete = false;
 
+  assert(issue_plugin_event_ != nullptr);
   while (!task->is_done()) {
     std::unique_lock lock(mutex);
     event_complete = false;
@@ -448,6 +451,7 @@ auto Plugin::insert(std::shared_ptr<BaseTask> task) -> EventId {
     }
   }
 
+  assert(issue_plugin_event_ != nullptr);
   issue_plugin_event_(
       [](EventId id) {
         Plugin& plugin = instance();
