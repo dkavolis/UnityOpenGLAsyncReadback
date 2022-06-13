@@ -58,8 +58,6 @@ class BaseTask {
   auto operator=(BaseTask&&) noexcept = delete;
   virtual ~BaseTask() noexcept = default;
 
-  virtual void update() = 0;
-
   [[nodiscard]] auto is_initialized() const noexcept -> bool { return initialized_; }
   [[nodiscard]] auto is_done() const noexcept -> bool { return done_; }
   [[nodiscard]] auto has_error() const noexcept -> bool { return error_; }
@@ -72,51 +70,17 @@ class BaseTask {
   }
 
   void start_request() {
+    glGenBuffers(1, &pbo_);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo_);
+
     on_start_request();
+
+    // Create a fence.
+    fence_ = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
     initialized_ = true;
   }
 
- protected:
-  virtual void on_start_request() = 0;
-
-  void set_data_and_done(void* data, size_t length) {
-    {
-      std::scoped_lock guard(mutex_);
-      void* dst = result_.allocate_if_null(length);
-      std::memcpy(dst, data, std::min(result_.size(), length));
-    }
-    done_ = true;
-  }
-
-  /*
-  Called by subclass to mark as error.
-  */
-  void set_error_and_done() {
-    error_ = true;
-    done_ = true;
-  }
-
- private:
-  Buffer result_;
-  std::mutex mutex_;
-
-  std::atomic<bool> initialized_ = false;
-  std::atomic<bool> error_ = false;
-  std::atomic<bool> done_ = false;
-};
-
-/*Task for readback from ssbo. Which is compute buffer in Unity
- */
-class SsboTask : public BaseTask {
- public:
-  using BaseTask::BaseTask;
-
-  void init(GLuint _ssbo, GLint _bufferSize) {
-    this->ssbo_ = _ssbo;
-    this->buffer_size_ = _bufferSize;
-  }
-
-  void update() override {
+  void update() {
     // Check fence state
     GLint status = 0;
     GLsizei length = 0;
@@ -135,7 +99,6 @@ class SsboTask : public BaseTask {
       // Map the buffer and copy it to data
       void* ptr = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, buffer_size_, GL_MAP_READ_BIT);
 
-      // Allocate the final data buffer !!! WARNING: free, will have to be done on script side !!!!
       set_data_and_done(ptr, buffer_size_);
 
       // Unmap and unbind
@@ -146,40 +109,77 @@ class SsboTask : public BaseTask {
   }
 
  protected:
+  virtual void on_start_request() = 0;
+  virtual void clean_up_graphics_resources() {}
+
+  /*
+  Called by subclass to mark as error.
+  */
+  void set_error_and_done() {
+    error_ = true;
+    done_ = true;
+  }
+
+  [[nodiscard]] auto buffer_size() const noexcept -> GLint { return buffer_size_; }
+  void set_buffer_size(GLint s) noexcept { buffer_size_ = s; }
+
+ private:
+  Buffer result_;
+  std::mutex mutex_;
+
+  std::atomic<bool> initialized_ = false;
+  std::atomic<bool> error_ = false;
+  std::atomic<bool> done_ = false;
+
+  GLuint pbo_ = 0;
+  GLsync fence_ = nullptr;
+  GLint buffer_size_ = 0;
+
+  void clean_up() {
+    if (pbo_ != 0) { glDeleteBuffers(1, &pbo_); }
+    if (fence_ != nullptr) { glDeleteSync(fence_); }
+    clean_up_graphics_resources();
+  }
+
+  void set_data_and_done(void* data, size_t length) {
+    {
+      std::scoped_lock guard(mutex_);
+      void* dst = result_.allocate_if_null(length);
+      std::memcpy(dst, data, std::min(result_.size(), length));
+    }
+    done_ = true;
+  }
+};
+
+/*Task for readback from ssbo. Which is compute buffer in Unity
+ */
+class SsboTask : public BaseTask {
+ public:
+  using BaseTask::BaseTask;
+
+  void init(GLuint _ssbo, GLint _bufferSize) {
+    this->ssbo_ = _ssbo;
+    this->set_buffer_size(_bufferSize);
+  }
+
+ protected:
   void on_start_request() override {
     // bind it to GL_COPY_WRITE_BUFFER to wait for use
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, this->ssbo_);
 
-    // Get our pbo ready.
-    glGenBuffers(1, &pbo_);
-    glBindBuffer(GL_PIXEL_PACK_BUFFER, this->pbo_);
     // Initialize pbo buffer storage.
-    glBufferData(GL_PIXEL_PACK_BUFFER, buffer_size_, nullptr, GL_STREAM_READ);
+    glBufferData(GL_PIXEL_PACK_BUFFER, this->buffer_size(), nullptr, GL_STREAM_READ);
 
     // Copy data to pbo.
-    glCopyBufferSubData(GL_SHADER_STORAGE_BUFFER, GL_PIXEL_PACK_BUFFER, 0, 0, buffer_size_);
+    glCopyBufferSubData(GL_SHADER_STORAGE_BUFFER, GL_PIXEL_PACK_BUFFER, 0, 0, this->buffer_size());
 
     // Unbind buffers.
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-
-    // Create a fence.
-    fence_ = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
-  }
-
-  void clean_up() {
-    if (pbo_ != 0) {
-      // Clear buffers
-      glDeleteBuffers(1, &(pbo_));
-    }
-    if (fence_ != nullptr) { glDeleteSync(fence_); }
   }
 
  private:
   GLuint ssbo_ = 0;
-  GLuint pbo_ = 0;
-  GLsync fence_ = nullptr;
-  GLint buffer_size_ = 0;
 };
 
 /*Task for readback texture.
@@ -193,33 +193,6 @@ class FrameTask : public BaseTask {
     miplevel_ = miplevel;
   }
 
-  void update() override {
-    // Check fence state
-    GLint status = 0;
-    GLsizei length = 0;
-    glGetSynciv(fence_, GL_SYNC_STATUS, sizeof(GLint), &length, &status);
-    if (length <= 0) {
-      set_error_and_done();
-      clean_up();
-      return;
-    }
-
-    // When it's done
-    if (status == GL_SIGNALED) {
-      // Bind back the pbo
-      glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo_);
-
-      // Map the buffer and copy it to data
-      void* ptr = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, size_, GL_MAP_READ_BIT);
-      set_data_and_done(ptr, size_);
-
-      // Unmap and unbind
-      glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
-      glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-      clean_up();
-    }
-  }
-
  protected:
   void on_start_request() override {
     // Get texture information
@@ -229,9 +202,9 @@ class FrameTask : public BaseTask {
     glGetTexLevelParameteriv(GL_TEXTURE_2D, miplevel_, GL_TEXTURE_DEPTH, &(depth_));
     glGetTexLevelParameteriv(GL_TEXTURE_2D, miplevel_, GL_TEXTURE_INTERNAL_FORMAT, &(internal_format_));
     int pixelBits = getPixelSizeFromInternalFormat(internal_format_);
-    size_ = depth_ * width_ * height_ * pixelBits / 8;
+    this->set_buffer_size(depth_ * width_ * height_ * pixelBits / 8);
     // Check for errors
-    if (size_ == 0 || pixelBits % 8 != 0  // Only support textures aligned to one byte.
+    if (this->buffer_size() == 0 || pixelBits % 8 != 0  // Only support textures aligned to one byte.
         || getFormatFromInternalFormat(internal_format_) == 0 || getTypeFromInternalFormat(internal_format_) == 0) {
       set_error_and_done();
       return;
@@ -244,10 +217,8 @@ class FrameTask : public BaseTask {
     glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
     glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texture_, 0);
 
-    // Create and bind pbo (pixel buffer object) to fbo
-    glGenBuffers(1, &(pbo_));
-    glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo_);
-    glBufferData(GL_PIXEL_PACK_BUFFER, size_, nullptr, GL_DYNAMIC_READ);
+    // bind pbo (pixel buffer object) to fbo
+    glBufferData(GL_PIXEL_PACK_BUFFER, this->buffer_size(), nullptr, GL_DYNAMIC_READ);
 
     // Start the read request
     glReadBuffer(GL_COLOR_ATTACHMENT0);
@@ -257,24 +228,15 @@ class FrameTask : public BaseTask {
     // Unbind buffers
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-    // Fence to know when it's ready
-    fence_ = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
   }
 
-  void clean_up() {
-    // Clear buffers
-    if (fbo_ != 0) glDeleteFramebuffers(1, &(fbo_));
-    if (pbo_ != 0) glDeleteBuffers(1, &(pbo_));
-    if (fence_ != nullptr) glDeleteSync(fence_);
+  void clean_up_graphics_resources() override {
+    if (fbo_ != 0) glDeleteFramebuffers(1, &fbo_);
   }
 
  private:
-  int size_ = 0;
-  GLsync fence_ = nullptr;
   GLuint texture_ = 0;
   GLuint fbo_ = 0;
-  GLuint pbo_ = 0;
   int miplevel_ = 0;
   int height_ = 0;
   int width_ = 0;
