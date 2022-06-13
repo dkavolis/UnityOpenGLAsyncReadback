@@ -409,7 +409,10 @@ void Plugin::update_render_thread_once() {
   std::scoped_lock guard(mutex_);
   for (auto const& request : requests_) {
     auto const& task = request.task;
-    if (task != nullptr && task->is_initialized() && !task->is_done()) task->update();
+    if (task != nullptr && task->is_initialized() && !task->is_done()) {
+      task->update();
+      if (on_complete_ != nullptr && task->is_done()) on_complete_(request.id);
+    }
   }
 }
 

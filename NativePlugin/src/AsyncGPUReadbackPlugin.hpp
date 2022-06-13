@@ -61,10 +61,16 @@ class Plugin {
   void set_issue_plugin_event(GL_IssuePluginEventPtr ptr) noexcept { issue_plugin_event_ = ptr; }
 
   /**
+   * @brief Set callback function when a request is completed, called from the render thread
+   * @param ptr
+   */
+  void set_on_complete(RequestCallbackPtr ptr) noexcept { on_complete_ = ptr; }
+
+  /**
    * @brief Set callback function when a request is disposed
    * @param ptr
    */
-  void set_on_destruct(OnDestructPtr ptr) noexcept { on_destruct_ = ptr; }
+  void set_on_destruct(RequestCallbackPtr ptr) noexcept { on_destruct_ = ptr; }
 
   /** @brief Update in main thread.
    * This will erase tasks that are marked as done in last frame.
@@ -118,7 +124,8 @@ class Plugin {
   std::vector<EventId> pending_release_;
   std::atomic<EventId> next_event_id_ = 0;
   GL_IssuePluginEventPtr issue_plugin_event_ = nullptr;
-  OnDestructPtr on_destruct_ = nullptr;
+  RequestCallbackPtr on_complete_ = nullptr;
+  RequestCallbackPtr on_destruct_ = nullptr;
 
   void update_render_thread_once();
 

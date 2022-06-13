@@ -51,7 +51,9 @@ auto Request_ComputeBufferIntoArray(void* data, size_t size, GLuint computeBuffe
 
 void SetGLIssuePluginEventPtr(GL_IssuePluginEventPtr ptr) { Plugin::instance().set_issue_plugin_event(ptr); }
 
-void SetOnDestructCallbackPtr(OnDestructPtr ptr) { Plugin::instance().set_on_destruct(ptr); }
+void SetOnCompleteCallbackPtr(RequestCallbackPtr ptr) { Plugin::instance().set_on_complete(ptr); }
+
+void SetOnDestructCallbackPtr(RequestCallbackPtr ptr) { Plugin::instance().set_on_destruct(ptr); }
 
 void MainThread_UpdateOnce() { Plugin::instance().update_once(); }
 

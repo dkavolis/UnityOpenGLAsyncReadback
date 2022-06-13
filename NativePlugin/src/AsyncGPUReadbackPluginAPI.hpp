@@ -7,7 +7,7 @@
 
 using EventId = int;
 using GL_IssuePluginEventPtr = void(UNITY_INTERFACE_API*)(UnityRenderingEvent, EventId);
-using OnDestructPtr = void(UNITY_INTERFACE_API*)(EventId);
+using RequestCallbackPtr = void(UNITY_INTERFACE_API*)(EventId);
 
 #define EXPORT_API UNITY_INTERFACE_EXPORT UNITY_INTERFACE_API
 
@@ -39,7 +39,8 @@ auto EXPORT_API Request_ComputeBufferIntoArray(void* data, size_t size, GLuint c
 
 // plugin methods
 void EXPORT_API SetGLIssuePluginEventPtr(GL_IssuePluginEventPtr ptr);
-void EXPORT_API SetOnDestructCallbackPtr(OnDestructPtr ptr);
+void EXPORT_API SetOnCompleteCallbackPtr(RequestCallbackPtr ptr);
+void EXPORT_API SetOnDestructCallbackPtr(RequestCallbackPtr ptr);
 void EXPORT_API MainThread_UpdateOnce();
 
 // request queries
