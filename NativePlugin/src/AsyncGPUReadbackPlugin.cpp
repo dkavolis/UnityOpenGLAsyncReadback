@@ -434,7 +434,7 @@ auto Plugin::insert(std::shared_ptr<BaseTask> task) -> EventId {
   {
     std::scoped_lock guard(mutex_);
 
-    if (requests_.back().id < event_id) [[likely]] {
+    if (requests_.empty() || requests_.back().id < event_id) [[likely]] {
       requests_.emplace_back(Request{
           .id = event_id,
           .task = std::move(task),
