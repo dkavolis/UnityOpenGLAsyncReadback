@@ -1,4 +1,4 @@
-using Unity.Collections;
+﻿using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -28,14 +28,15 @@ namespace Yangrc.OpenGLAsyncReadback
         private static void Initialize()
         {
             _supportsAsyncGPUReadback = SystemInfo.supportsAsyncGPUReadback;
-            if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.OpenGLCore ||
-                _instance != null) return;
-            var go = new GameObject("__OpenGL Async Readback Updater__")
-            {
-                hideFlags = HideFlags.HideAndDontSave
-            };
-            DontDestroyOnLoad(go);
+            if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.OpenGLCore) return;
+            OpenGLAsyncReadbackRequest.Initialize();
+
+            if (_instance != null) return;
+            var go = new GameObject("__OpenGL Async Readback Updater__");
             go.AddComponent<AsyncReadback>();
+            if (!Application.isEditor) go.hideFlags = HideFlags.HideAndDontSave;
+
+            DontDestroyOnLoad(go);
         }
 
         /// <summary>
