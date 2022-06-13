@@ -19,7 +19,7 @@ namespace Yangrc.OpenGLAsyncReadback
         internal UniversalAsyncGPUReadbackRequest(OpenGLAsyncReadbackRequest request)
         {
             uRequest = default;
-            isPlugin = false;
+            isPlugin = true;
             oRequest = request;
         }
 
