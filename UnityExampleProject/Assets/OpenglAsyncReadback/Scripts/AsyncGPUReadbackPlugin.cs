@@ -1,61 +1,9 @@
-using System;
-using System.Collections.Generic;
 using Unity.Collections;
-using UnityEngine;
 using UnityEngine.Rendering;
 
 // ReSharper disable once CheckNamespace
 namespace Yangrc.OpenGLAsyncReadback
 {
-    /// <summary>
-    /// Remember RenderTexture native pointer.
-    ///
-    /// It's cost to call GetNativeTexturePtr() for Unity, it will cause sync between render thread and main thread.
-    /// </summary>
-    internal static class RenderTextureRegistry
-    {
-        private static readonly Dictionary<Texture, IntPtr> TexturePointers = new Dictionary<Texture, IntPtr>();
-
-        private static readonly Dictionary<ComputeBuffer, IntPtr> ComputePointers =
-            new Dictionary<ComputeBuffer, IntPtr>();
-
-        public static IntPtr GetFor(Texture rt)
-        {
-            if (TexturePointers.TryGetValue(rt, out IntPtr ptr))
-                return ptr;
-
-            ptr = rt.GetNativeTexturePtr();
-            TexturePointers.Add(rt, ptr);
-            return ptr;
-        }
-
-        public static IntPtr GetFor(ComputeBuffer rt)
-        {
-            if (ComputePointers.TryGetValue(rt, out IntPtr ptr))
-                return ptr;
-
-            ptr = rt.GetNativeBufferPtr();
-            ComputePointers.Add(rt, ptr);
-            return ptr;
-        }
-
-        public static void ClearDeadRefs()
-        {
-            //Clear disposed pointers.
-            foreach (KeyValuePair<ComputeBuffer, IntPtr> item in ComputePointers)
-            {
-                if (!item.Key.IsValid())
-                    ComputePointers.Remove(item.Key);
-            }
-
-            foreach (KeyValuePair<Texture, IntPtr> item in TexturePointers)
-            {
-                if (item.Key == null)
-                    TexturePointers.Remove(item.Key);
-            }
-        }
-    }
-
     /// <summary>
     /// Helper struct that wraps unity async readback and our opengl readback together, to hide difference
     /// </summary>

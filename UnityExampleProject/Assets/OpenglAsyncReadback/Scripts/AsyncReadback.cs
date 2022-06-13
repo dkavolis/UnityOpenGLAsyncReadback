@@ -1,4 +1,4 @@
-﻿using Unity.Collections;
+using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -22,7 +22,6 @@ namespace Yangrc.OpenGLAsyncReadback
         private void Update()
         {
             OpenGLAsyncReadbackRequest.Update();
-            RenderTextureRegistry.ClearDeadRefs();
         }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
@@ -50,8 +49,8 @@ namespace Yangrc.OpenGLAsyncReadback
             if (_supportsAsyncGPUReadback)
                 return new UniversalAsyncGPUReadbackRequest(AsyncGPUReadback.Request(src, mipIndex: mipmapIndex));
 
-            return new UniversalAsyncGPUReadbackRequest(OpenGLAsyncReadbackRequest.CreateTextureRequest(
-                RenderTextureRegistry.GetFor(src).ToInt32(), mipmapIndex));
+            return new UniversalAsyncGPUReadbackRequest(
+                OpenGLAsyncReadbackRequest.CreateTextureRequest(src.GetNativeTexturePtr().ToInt32(), mipmapIndex));
         }
 
         public static UniversalAsyncGPUReadbackRequest RequestIntoNativeArray<T>(ref NativeArray<T> output, Texture src,
@@ -62,7 +61,7 @@ namespace Yangrc.OpenGLAsyncReadback
                     AsyncGPUReadback.RequestIntoNativeArray(ref output, src, mipIndex: mipmapIndex));
 
             return new UniversalAsyncGPUReadbackRequest(OpenGLAsyncReadbackRequest.CreateTextureRequest(ref output,
-                RenderTextureRegistry.GetFor(src).ToInt32(), mipmapIndex));
+                src.GetNativeTexturePtr().ToInt32(), mipmapIndex));
         }
 
         public static UniversalAsyncGPUReadbackRequest Request(ComputeBuffer computeBuffer)
