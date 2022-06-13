@@ -452,8 +452,11 @@ auto Plugin::insert(std::shared_ptr<BaseTask> task) -> EventId {
       [](EventId id) {
         Plugin& plugin = instance();
 
-        std::scoped_lock guard(plugin.mutex_);
-        std::shared_ptr<BaseTask> task = plugin.find(id)->task;  // always valid id
+        std::shared_ptr<BaseTask> task;
+        {
+          std::scoped_lock guard(plugin.mutex_);
+          task = plugin.find(id)->task;  // always valid id
+        }
         task->start_request();
       },
       event_id);
