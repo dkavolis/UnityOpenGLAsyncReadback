@@ -28,8 +28,9 @@ source_group("Source Files" FILES ${SOURCES} ${HEADERS})
 
 add_library(${PROJECT_NAME} SHARED ${HEADERS} ${SOURCES})
 target_link_libraries(${PROJECT_NAME} ${OPENGL_LIBRARY} GLEW)
-set_target_properties(${PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX RUNTIME_OUTPUT_DIRECTORY
-                                                                     ${CMAKE_CURRENT_SOURCE_DIR}/../bin)
+set_target_properties(
+  ${PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../bin
+                             LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../bin)
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
 
 if(MSVC)
