@@ -1,0 +1,66 @@
+name: Test and Build
+
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  test_and_build:
+    name: Test and build ${{ matrix.os }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        unityVersion: ["2019.4.18f1"]
+        projectPath:
+          - UnityExampleProject
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        buildType: [Debug, Release]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/cache@v2
+        with:
+          path: ${{ matrix.projectPath }}/Library
+          key: Library-${{ matrix.projectPath }}-${{ matrix.os }}-${{ matrix.unityVersion }}
+          restore-keys: |
+            Library-${{ matrix.os }}-${{ matrix.unityVersion }}-
+            Library-
+
+      - uses: lukka/get-cmake@latest
+      - name: Build native plugin
+        run: |
+          cd ${{ github.workspace }}/NativePlugin
+          mkdir build
+          cd build
+          cmake .. -DCMAKE_BUILD_TYPE=${{ matrix.buildType }}
+          cmake --build .
+
+      - uses: game-ci/unity-test-runner@v2
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+        with:
+          unityVersion: ${{ matrix.unityVersion }}
+          projectPath: ${{ matrix.projectPath }}
+          testMode: playmode
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: game-ci/unity-builder@v2
+        #  only building on windows as the managed plugins are platform agnostic
+        if: contains(matrix.os, 'windows')
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+        with:
+          unityVersion: ${{ matrix.unityVersion }}
+          projectPath: ${{ matrix.projectPath }}
+          targetPlatform: StandaloneWindows64
+          buildMethod: OpenglAsyncReadback.Editor.Build
+          customParameters: -buildType ${{ matrix.buildType }}
+
+      - uses: actions/upload-artifact@v2
+        with:
+          name: UniversalAsyncGPUPlugin-${{ matrix.buildType }}
+          path: |
+            bin/*.dll
+            bin/*.pdb
+            bin/*.so
+            bin/*.dylib

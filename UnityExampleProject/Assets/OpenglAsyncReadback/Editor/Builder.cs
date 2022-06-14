@@ -23,6 +23,21 @@ namespace OpenglAsyncReadback.Editor
             Build(true);
         }
 
+        public static void Build()
+        {
+            string[] args = Environment.GetCommandLineArgs();
+            int index = Array.IndexOf(args, "-buildType");
+            var debug = false;
+            if (index >= 0)
+            {
+                if (index + 1 >= args.Length) throw new ArgumentException("Missing value for buildType!");
+                string buildType = args[index + 1];
+                debug = buildType.Equals("debug", StringComparison.OrdinalIgnoreCase);
+            }
+
+            Build(debug);
+        }
+
         private static void Build(bool debug)
         {
             Directory.CreateDirectory(PlayerDir);
