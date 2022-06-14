@@ -3,3 +3,4 @@ ManagedPlugin/bin
 UnityExampleProject/test.png
 NativePlugin/*build*
 NativePlugin/.idea
+bin/
