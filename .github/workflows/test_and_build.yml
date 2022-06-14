@@ -55,14 +55,15 @@ jobs:
           configure-options: -G Ninja
           build-type: ${{ matrix.buildType }}
 
-      - uses: game-ci/unity-test-runner@v2
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-        with:
-          unityVersion: ${{ matrix.unityVersion }}
-          projectPath: ${{ matrix.projectPath }}
-          testMode: playmode
-          githubToken: ${{ secrets.GITHUB_TOKEN }}
+      # - uses: game-ci/unity-test-runner@v2
+      #   env:
+      #     UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+      #   with:
+      #     unityVersion: ${{ matrix.unityVersion }}
+      #     projectPath: ${{ matrix.projectPath }}
+      #     testMode: playmode
+      #     githubToken: ${{ secrets.GITHUB_TOKEN }}
+      #     customParameters: -force-glcore
 
       - uses: game-ci/unity-builder@v2
         #  only building on windows as the managed plugins are platform agnostic
