@@ -54,8 +54,8 @@ jobs:
           configure-options: -G Ninja
           build-type: ${{ matrix.buildType }}
 
-      - uses: game-ci/unity-test-runner@v2
-        if: contains(matrix.platform.os, 'ubuntu')
+      - uses: game-ci/unity-test-runner@e8774f3837cabcdd6f5ffc39227af382c1f93021
+        if: contains(matrix.platform.os, 'windows')
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
         with:
