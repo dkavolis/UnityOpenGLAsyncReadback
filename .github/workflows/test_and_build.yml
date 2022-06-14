@@ -76,6 +76,7 @@ jobs:
           targetPlatform: StandaloneLinux64
           buildMethod: OpenglAsyncReadback.Editor.Build
           customParameters: -buildType ${{ matrix.buildType }}
+          allowDirtyBuild: true
 
       - uses: actions/upload-artifact@v2
         with:
