@@ -6,6 +6,8 @@ jobs:
   test_and_build:
     name: Test and build ${{ matrix.platform.os }}-${{ matrix.buildType }}
     runs-on: ${{ matrix.platform.os }}
+    env:
+      cacheVersion: 1
     strategy:
       fail-fast: false
       matrix:
@@ -31,10 +33,7 @@ jobs:
       - uses: actions/cache@v2
         with:
           path: ${{ matrix.projectPath }}/Library
-          key: Library-${{ matrix.projectPath }}-${{ matrix.platform.os }}-${{ matrix.unityVersion }}
-          restore-keys: |
-            Library-${{ matrix.platform.os }}-${{ matrix.unityVersion }}-
-            Library-
+          key: Library-${{ matrix.projectPath }}-${{ matrix.platform.os }}-${{ matrix.unityVersion }}-${{ env.cacheVersion }}
 
       - uses: lukka/get-cmake@latest
 
