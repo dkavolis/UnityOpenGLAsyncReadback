@@ -75,13 +75,17 @@ jobs:
           projectPath: ${{ matrix.projectPath }}
           targetPlatform: StandaloneLinux64
           buildMethod: OpenglAsyncReadback.Editor.Builder.Build
-          buildsPath: bin/player
+          buildName: player
+          buildsPath: ${{ github.workspace }}/bin
           customParameters: -buildType ${{ matrix.buildType }}
           allowDirtyBuild: true
 
       - name: Copy managed plugin to bin
         if: contains(matrix.platform.os, 'ubuntu')
-        run: cp bin/**/UniversalAsyncGPU* bin -u
+        run: |
+          sudo apt install tree
+          tree ${{ github.workspace }}/bin
+          cp ${{ github.workspace }}/bin/player/**/UniversalAsyncGPU* ${{ github.workspace }}/bin -u
 
       - uses: actions/upload-artifact@v2
         with:
