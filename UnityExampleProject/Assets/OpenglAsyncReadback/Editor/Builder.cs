@@ -46,9 +46,26 @@ namespace OpenglAsyncReadback.Editor
             {
                 locationPathName = PlayerDir + "/player.exe",
                 options = BuildOptions.StrictMode | BuildOptions.BuildScriptsOnly,
-                target = BuildTarget.StandaloneWindows64, // doesn't matter which as the scripts are platform agnostic
                 targetGroup = BuildTargetGroup.Standalone
             };
+
+            // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
+            switch (Application.platform) {
+                case RuntimePlatform.OSXEditor:
+                case RuntimePlatform.OSXPlayer:
+                    options.target = BuildTarget.StandaloneOSX;
+                    break;
+                case RuntimePlatform.WindowsPlayer:
+                case RuntimePlatform.WindowsEditor:
+                    options.target = BuildTarget.StandaloneWindows64;
+                    break;
+                case RuntimePlatform.LinuxPlayer:
+                case RuntimePlatform.LinuxEditor:
+                    options.target = BuildTarget.StandaloneLinux64;
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException();
+            }
 
             if (debug)
                 options.options |= BuildOptions.Development;
