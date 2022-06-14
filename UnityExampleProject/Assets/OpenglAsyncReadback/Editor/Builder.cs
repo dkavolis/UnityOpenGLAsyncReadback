@@ -46,7 +46,7 @@ namespace OpenglAsyncReadback.Editor
             var options = new BuildPlayerOptions
             {
                 locationPathName = PlayerDir + "/player.exe",
-                options = BuildOptions.StrictMode | BuildOptions.BuildScriptsOnly,
+                options = BuildOptions.None,
                 targetGroup = BuildTargetGroup.Standalone
             };
 
