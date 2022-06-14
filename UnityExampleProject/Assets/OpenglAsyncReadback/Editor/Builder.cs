@@ -105,7 +105,15 @@ namespace OpenglAsyncReadback.Editor
                 string dst = Path.Combine(BinDir, Path.GetFileName(file));
                 if (File.Exists(dst)) File.Delete(dst);
                 Debug.LogFormat("Copying {0} to {1}", file, dst);
-                File.Copy(file, dst);
+                try
+                {
+                    File.Copy(file, dst);
+                }
+                catch (FileNotFoundException e)
+                {
+                    Debug.LogError("For unknown reasons, the file no longer exists!");
+                    Debug.LogException(e);
+                }
             }
         }
     }

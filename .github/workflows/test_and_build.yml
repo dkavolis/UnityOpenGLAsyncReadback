@@ -79,6 +79,10 @@ jobs:
           customParameters: -buildType ${{ matrix.buildType }}
           allowDirtyBuild: true
 
+      - name: Copy managed plugin to bin
+        if: contains(matrix.platform.os, 'ubuntu')
+        run: cp bin/**/UniversalAsyncGPU* bin -u
+
       - uses: actions/upload-artifact@v2
         with:
           name: UniversalAsyncGPUPlugin-${{ matrix.buildType }}
