@@ -75,6 +75,7 @@ jobs:
           projectPath: ${{ matrix.projectPath }}
           targetPlatform: StandaloneLinux64
           buildMethod: OpenglAsyncReadback.Editor.Builder.Build
+          buildsPath: bin/player
           customParameters: -buildType ${{ matrix.buildType }}
           allowDirtyBuild: true
 
