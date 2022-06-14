@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
 using UnityEditor;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
@@ -89,12 +90,22 @@ namespace OpenglAsyncReadback.Editor
                     throw new ArgumentOutOfRangeException();
             }
 
-            foreach (BuildFile file in report.files)
+            // BuildFile is full of lies, it has an invalid data dir on Linux...
+            string dataDir = Directory.GetDirectories(Path.Combine(summary.outputPath, ".."))
+                .FirstOrDefault(dir => dir.Contains("Data"));
+            if (string.IsNullOrEmpty(dataDir))
             {
-                if (!file.path.Contains("AsyncGPU")) continue;
-                string dst = Path.Combine(BinDir, Path.GetFileName(file.path));
+                Debug.LogWarning("No data dir generated!");
+                return;
+            }
+
+            string managedDir = Path.Combine(dataDir, "Managed");
+            foreach (string file in Directory.GetFiles(managedDir, "*AsyncGPU*"))
+            {
+                string dst = Path.Combine(BinDir, Path.GetFileName(file));
                 if (File.Exists(dst)) File.Delete(dst);
-                File.Copy(file.path, dst);
+                Debug.LogFormat("Copying {0} to {1}", file, dst);
+                File.Copy(file, dst);
             }
         }
     }
