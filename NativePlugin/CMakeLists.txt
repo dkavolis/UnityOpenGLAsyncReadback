@@ -50,12 +50,21 @@ endif()
 if(dirname)
   set(outdir ${CMAKE_CURRENT_SOURCE_DIR}/../UnityExampleProject/Assets/OpenglAsyncReadback/Plugins/${dirname})
   message("Native plugin will also be copied to ${outdir}")
-  add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}>
-                                                               ${outdir}/$<TARGET_FILE_NAME:${PROJECT_NAME}>)
+  add_custom_command(
+    TARGET ${PROJECT_NAME}
+    POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${PROJECT_NAME}> ${outdir}/$<TARGET_FILE_NAME:${PROJECT_NAME}>
+    COMMAND ${CMAKE_COMMAND} -E echo Copied $<TARGET_FILE:${PROJECT_NAME}> ${outdir}/$<TARGET_FILE_NAME:${PROJECT_NAME}>
+    VERBATIM)
 
   if(MSVC AND CMAKE_BUILD_TYPE MATCHES "Debug|RelWithDebInfo")
     add_custom_command(
-      TARGET ${PROJECT_NAME} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:${PROJECT_NAME}>
-                                                ${outdir}/$<TARGET_PDB_FILE_NAME:${PROJECT_NAME}>)
+      TARGET ${PROJECT_NAME}
+      POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_PDB_FILE:${PROJECT_NAME}>
+              ${outdir}/$<TARGET_PDB_FILE_NAME:${PROJECT_NAME}>
+      COMMAND ${CMAKE_COMMAND} -E echo Copied $<TARGET_PDB_FILE:${PROJECT_NAME}>
+              ${outdir}/$<TARGET_PDB_FILE_NAME:${PROJECT_NAME}>
+      VERBATIM)
   endif()
 endif()
