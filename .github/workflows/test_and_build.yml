@@ -65,7 +65,7 @@ jobs:
       #     githubToken: ${{ secrets.GITHUB_TOKEN }}
       #     customParameters: -force-glcore
 
-      - uses: game-ci/unity-builder@v2
+      - uses: game-ci/unity-builder@47b25cf3b1606ac8b31d43de58ed936dbe792417
         #  only building on windows as the managed plugins are platform agnostic
         if: contains(matrix.platform.os, 'windows')
         env:
