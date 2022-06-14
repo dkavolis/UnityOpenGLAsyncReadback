@@ -55,26 +55,66 @@ jobs:
           configure-options: -G Ninja
           build-type: ${{ matrix.buildType }}
 
-      - uses: game-ci/unity-test-runner@v2
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-        with:
-          unityVersion: ${{ matrix.unityVersion }}
-          projectPath: ${{ matrix.projectPath }}
-          testMode: playmode
-          githubToken: ${{ secrets.GITHUB_TOKEN }}
+      # - uses: game-ci/unity-test-runner@v2
+      #   env:
+      #     UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+      #   with:
+      #     unityVersion: ${{ matrix.unityVersion }}
+      #     projectPath: ${{ matrix.projectPath }}
+      #     testMode: playmode
+      #     githubToken: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: game-ci/unity-builder@v2
+      # - uses: game-ci/unity-builder@v2
+      #   #  only building on windows as the managed plugins are platform agnostic
+      #   if: contains(matrix.platform.os, 'windows')
+      #   env:
+      #     UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+      #   with:
+      #     unityVersion: ${{ matrix.unityVersion }}
+      #     projectPath: ${{ matrix.projectPath }}
+      #     targetPlatform: StandaloneWindows64
+      #     buildMethod: OpenglAsyncReadback.Editor.Build
+      #     customParameters: -force-glcore -buildType ${{ matrix.buildType }}
+
+      - uses: actions/cache@v2
+        with:
+          path: ${{ github.workspace }}/Unity
+          key: Unity-${{ matrix.platform.os }}-${{ matrix.unityVersion }}
+
+      - uses: kuler90/setup-unity@v1
+        with:
+          unity-version: ${{ matrix.unityVersion }}
+          install-path: ${{ github.workspace }}/Unity
+
+      - name: Activate unity
+        run: |
+          echo ${{ secrets.UNITY_LICENSE }} >> unity_license
+          "${{ env.UNITY_PATH }}" -batchmode -manualLicenseFile unity_license -logfile -
+          mkdir artifacts
+
+      - name: Test
+        run: >
+          "${{ env.UNITY_PATH }}" -batchmode
+            -logfile artifacts/test.log
+            -projectPath ${{  matrix.projectPath }}
+            -runTests
+            -testPlatform playmode
+            -testResults artifacts/results.xml
+            -enableCodeCoverage
+            -debugCodeOptimization
+            -force-glcore
+            -coverageOptions
+            generateAdditionalMetrics;generateHtmlReport;generateBadgeReport
+
+      - name: Build
         #  only building on windows as the managed plugins are platform agnostic
         if: contains(matrix.platform.os, 'windows')
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-        with:
-          unityVersion: ${{ matrix.unityVersion }}
-          projectPath: ${{ matrix.projectPath }}
-          targetPlatform: StandaloneWindows64
-          buildMethod: OpenglAsyncReadback.Editor.Build
-          customParameters: -buildType ${{ matrix.buildType }}
+        run: >
+          "${{ env.UNITY_PATH }}" -batchmode
+            -logfile artifacts/build.log
+            -projectPath ${{  matrix.projectPath }}
+            -executeMethod OpenglAsyncReadback.Editor.Build
+            -buildType ${{ matrix.buildType }}
 
       - uses: actions/upload-artifact@v2
         with:
