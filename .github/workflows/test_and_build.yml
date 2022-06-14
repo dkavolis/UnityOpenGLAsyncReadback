@@ -85,7 +85,6 @@ jobs:
         run: |
           sudo apt install tree
           tree ${{ github.workspace }}/bin
-          cp ${{ github.workspace }}/bin/player/**/UniversalAsyncGPU* ${{ github.workspace }}/bin -u
 
       - uses: actions/upload-artifact@v2
         with:
@@ -95,3 +94,4 @@ jobs:
             bin/*.pdb
             bin/*.so
             bin/*.dylib
+            bin/player/**/UniversalAsyncGPU*
