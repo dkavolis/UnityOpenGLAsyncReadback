@@ -42,6 +42,9 @@ jobs:
         run: |
           ${{ matrix.platform.install }}
 
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: contains(matrix.platform.os, 'windows')
+
       - name: Build with CMake
         uses: ashutoshvarma/action-cmake-build@ade188313bc7eaa6f14349569a64d8bc716342ff
         with:
