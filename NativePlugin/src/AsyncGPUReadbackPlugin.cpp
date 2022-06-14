@@ -339,7 +339,7 @@ void Plugin::wait_for_completion(EventId event_id) const {
   {
     std::scoped_lock guard(mutex_);
     auto iter = find(event_id);
-    if (iter != requests_.cend() || iter->task->is_done()) return;
+    if (iter == requests_.cend() || iter->task->is_done()) return;
     task = iter->task;
   }
 

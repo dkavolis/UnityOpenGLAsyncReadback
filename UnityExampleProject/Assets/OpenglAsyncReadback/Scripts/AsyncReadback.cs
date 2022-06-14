@@ -12,11 +12,11 @@ namespace Yangrc.OpenGLAsyncReadback
     public class AsyncReadback : MonoBehaviour
     {
         private static bool _supportsAsyncGPUReadback;
-        private static AsyncReadback _instance;
+        public static AsyncReadback instance { get; private set; }
 
         private void Awake()
         {
-            _instance = this;
+            instance = this;
         }
 
         private void Update()
@@ -31,7 +31,7 @@ namespace Yangrc.OpenGLAsyncReadback
             if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.OpenGLCore) return;
             OpenGLAsyncReadbackRequest.Initialize();
 
-            if (_instance != null) return;
+            if (instance != null) return;
             var go = new GameObject("__OpenGL Async Readback Updater__");
             go.AddComponent<AsyncReadback>();
             if (!Application.isEditor) go.hideFlags = HideFlags.HideAndDontSave;
