@@ -31,16 +31,29 @@ jobs:
       - name: Install dependencies
         if: contains(matrix.os, 'ubuntu')
         run: |
-          sudo apt-get install g++11 freeglut3-dev
-          export CXX=g++-11
-          export CC=gcc-11
+          sudo apt-get install freeglut3-dev ninja-build
+          echo "CC=gcc-11"
+          echo "CXX=g++-11"
+
+      - name: Install dependencies
+        if: contains(matrix.os, 'windows')
+        run: |
+          echo "CC=cl"
+          echo "CXX=cl"
+
+      - name: Install dependencies
+        if: contains(matrix.os, 'macos')
+        run: |
+          brew install ninja
+          echo "CC=clang"
+          echo "CXX=clang++"
 
       - name: Build native plugin
         run: |
           cd ${{ github.workspace }}/NativePlugin
           mkdir build
           cd build
-          cmake .. -DCMAKE_BUILD_TYPE=${{ matrix.buildType }}
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.buildType }} -DCMAKE_CXX_COMPILER=${{ env.CXX}} -DCMAKE_C_COMPILER=${{ env.CC }}
           cmake --build .
 
       - uses: game-ci/unity-test-runner@v2
