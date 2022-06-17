@@ -49,7 +49,7 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Windows")
 endif()
 
 if(dirname)
-  set(outdir ${CMAKE_CURRENT_SOURCE_DIR}/../UnityExampleProject/Assets/OpenglAsyncReadback/Plugins/${dirname})
+  set(outdir ${CMAKE_CURRENT_SOURCE_DIR}/../UnityPlugin/Assets/OpenglAsyncReadback/Plugins/${dirname})
   message("Native plugin will also be copied to ${outdir}")
   add_custom_command(
     TARGET ${PROJECT_NAME}

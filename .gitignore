@@ -1,6 +1,6 @@
 ManagedPlugin/obj
 ManagedPlugin/bin
-UnityExampleProject/test.png
+UnityPlugin/test.png
 NativePlugin/*build*
 NativePlugin/.idea
 bin/

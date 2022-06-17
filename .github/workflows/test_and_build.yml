@@ -13,7 +13,7 @@ jobs:
       matrix:
         unityVersion: ["2019.4.18f1"]
         projectPath:
-          - UnityExampleProject
+          - UnityPlugin
         platform:
           - os: windows-latest
             cxx: cl

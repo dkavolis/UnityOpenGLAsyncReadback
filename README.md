@@ -12,9 +12,9 @@ The native code has been tested to compile on g++ 5.4.0 and vs2015.
 
 ## Use it
 ### Install
-Copy plugin folder at `UnityExampleProject\Assets\Plugins` to your project. It contains both Windows and Linux native libraries for use.
+Copy plugin folder at `UnityPlugin\Assets\Plugins` to your project. It contains both Windows and Linux native libraries for use.
 
-Copy `UnityExampleProject\Assets\OpenglAsyncReadback` to anywhere in your project. It contains C# code as interface of native code.
+Copy `UnityPlugin\Assets\OpenglAsyncReadback` to anywhere in your project. It contains C# code as interface of native code.
 
 ### The API
 All C# apis are inside namespace Yangrc.OpenGLAsyncReadback.
@@ -26,7 +26,7 @@ Once the request is started, you should check if it's done by `request.done` in 
 The done status will only be valid for one frame, then everything is automatically disposed. So once it's done, copy the data to your own storage ASAP.  
 
 ### Example
-To see a working example you can open `UnityExampleProject` with the Unity editor. It saves screenshot of the camera every 60 frames. The script taking screenshot is in `UnityExampleProject/Assets/OpenglAsyncReadback/Scripts/UsePlugin.cs`
+To see a working example you can open `UnityPlugin` with the Unity editor. It saves screenshot of the camera every 60 frames. The script taking screenshot is in `UnityPlugin/Assets/OpenglAsyncReadback/Scripts/UsePlugin.cs`
 
 ## Build Native Plugin
 To build native plugin, you need to have cmake installed. If you have it, just go to NativePlugin/ folder and use cmake to build it. There's no other dependencies except OpenGL library(The glew library is staticlly linked using source code), which should always be available.
