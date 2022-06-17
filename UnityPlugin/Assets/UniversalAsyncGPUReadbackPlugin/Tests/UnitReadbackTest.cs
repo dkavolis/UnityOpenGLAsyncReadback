@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -14,12 +14,12 @@ namespace UniversalAsyncGPUReadbackPlugin.Tests
 
         protected abstract IReadOnlyList<int> expected { get; }
 
-        [SetUp]
+        [OneTimeSetUp]
         public void Setup()
         {
-            Assert.That(UnityEngine.Object.FindObjectOfType<AsyncReadback>(), Is.Not.Null);
-            AsyncReadback.instance.enabled = false; // don't update requests while the tests are being set up
-            request = Start();
+            Assert.That(() => AsyncReadback.isSupported &&
+                              (UnityEngine.Object.FindObjectOfType<AsyncReadback>() != null ||
+                               !AsyncReadback.usesCustomPlugin));
         }
 
         protected abstract UniversalAsyncGPUReadbackRequest Start();
@@ -27,6 +27,8 @@ namespace UniversalAsyncGPUReadbackPlugin.Tests
         [UnityTest]
         public IEnumerator DataIsReadBackAndRequestsAreDisposedOfInTheNextFrame()
         {
+            request = Start();
+
             BeforeRequestDone();
 
             while (!request.done) yield return null;
@@ -37,6 +39,8 @@ namespace UniversalAsyncGPUReadbackPlugin.Tests
         [UnityTest]
         public IEnumerator WaitForCompletionBlocksUntilRequestIsDone()
         {
+            request = Start();
+
             BeforeRequestDone();
 
             request.WaitForCompletion();

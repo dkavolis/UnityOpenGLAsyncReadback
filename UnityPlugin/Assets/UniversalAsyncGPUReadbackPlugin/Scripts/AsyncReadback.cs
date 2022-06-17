@@ -1,4 +1,4 @@
-using Unity.Collections;
+﻿using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -12,6 +12,9 @@ namespace UniversalAsyncGPUReadbackPlugin
     {
         private static bool _supportsAsyncGPUReadback;
         public static AsyncReadback instance { get; private set; }
+
+        public static bool isSupported => _supportsAsyncGPUReadback || OpenGLAsyncReadbackRequest.IsAvailable();
+        public static bool usesCustomPlugin => !_supportsAsyncGPUReadback && OpenGLAsyncReadbackRequest.IsAvailable();
 
         private void Awake()
         {
@@ -27,7 +30,7 @@ namespace UniversalAsyncGPUReadbackPlugin
         private static void Initialize()
         {
             _supportsAsyncGPUReadback = SystemInfo.supportsAsyncGPUReadback;
-            if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.OpenGLCore) return;
+            if (!OpenGLAsyncReadbackRequest.IsAvailable()) return;
             OpenGLAsyncReadbackRequest.Initialize();
 
             if (instance != null) return;
