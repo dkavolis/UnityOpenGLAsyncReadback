@@ -6,9 +6,9 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 0
-    path: 
+    path:
     guid: 00000000000000000000000000000000
   - enabled: 1
-    path: Assets/OpenglAsyncReadback/ExampleScenes/Scene.unity
+    path: Assets/UniversalAsyncGPUReadbackPlugin/ExampleScenes/Scene.unity
     guid: bb509b92e73fe4439839f06c1aec0245
   m_configObjects: {}
