@@ -75,7 +75,7 @@ jobs:
           unityVersion: ${{ matrix.unityVersion }}
           projectPath: ${{ matrix.projectPath }}
           targetPlatform: StandaloneLinux64
-          buildMethod: OpenglAsyncReadback.Editor.Builder.Build
+          buildMethod: UniversalAsyncGPUReadbackPlugin.Editor.Builder.Build
           buildName: player
           buildsPath: ${{ github.workspace }}/bin
           customParameters: -buildType ${{ matrix.buildType }}
