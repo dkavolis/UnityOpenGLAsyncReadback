@@ -1,9 +1,8 @@
-﻿using Unity.Collections;
+using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-// ReSharper disable once CheckNamespace
-namespace Yangrc.OpenGLAsyncReadback
+namespace UniversalAsyncGPUReadbackPlugin
 {
     /// <summary>
     /// A helper class to trigger readback update every frame.

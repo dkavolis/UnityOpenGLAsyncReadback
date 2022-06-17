@@ -1,10 +1,10 @@
 ﻿using System.Collections.Generic;
 using Unity.Collections;
 using UnityEngine;
-using Yangrc.OpenGLAsyncReadback;
+
 // ReSharper disable UnusedType.Global
 
-namespace OpenglAsyncReadback.Tests
+namespace UniversalAsyncGPUReadbackPlugin.Tests
 {
     public abstract class ComputeBufferReadbackTestBase : UnitReadbackTest
     {

@@ -5,7 +5,7 @@ using UnityEditor;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
 
-namespace OpenglAsyncReadback.Editor
+namespace UniversalAsyncGPUReadbackPlugin.Editor
 {
     public static class Builder
     {

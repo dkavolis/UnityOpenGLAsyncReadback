@@ -2,5 +2,6 @@ ManagedPlugin/obj
 ManagedPlugin/bin
 UnityPlugin/test.png
 NativePlugin/*build*
-NativePlugin/.idea
+.idea
 bin/
+*.DotSettings

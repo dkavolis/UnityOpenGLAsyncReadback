@@ -3,10 +3,10 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using Unity.Collections;
 using UnityEngine;
-using Yangrc.OpenGLAsyncReadback;
+
 // ReSharper disable UnusedType.Global
 
-namespace OpenglAsyncReadback.Tests
+namespace UniversalAsyncGPUReadbackPlugin.Tests
 {
     [StructLayout(LayoutKind.Explicit)]
     internal struct ColorIntConverter

@@ -17,7 +17,7 @@ Copy plugin folder at `UnityPlugin\Assets\Plugins` to your project. It contains 
 Copy `UnityPlugin\Assets\UniversalAsyncGPUReadbackPlugin` to anywhere in your project. It contains C# code as interface of native code.
 
 ### The API
-All C# apis are inside namespace Yangrc.OpenGLAsyncReadback.
+All C# apis are inside namespace `UniversalAsyncGPUReadbackPlugin`.
 
 To start a readback, use `UniversalAsyncGPUReadbackRequest UniversalAsyncGPUReadbackRequest.Request(Texture tex)`. This function returns "universal" object, which means it could be a Unity's standard readback request, or a OpenGL request if under opengl environment. After that, it will automatically update during every frame(You don't have to manually call Update(), there's a global dontdestroyonload gameobject doing this).
 

@@ -1,8 +1,7 @@
 using Unity.Collections;
 using UnityEngine.Rendering;
 
-// ReSharper disable once CheckNamespace
-namespace Yangrc.OpenGLAsyncReadback
+namespace UniversalAsyncGPUReadbackPlugin
 {
     /// <summary>
     /// Helper struct that wraps unity async readback and our opengl readback together, to hide difference

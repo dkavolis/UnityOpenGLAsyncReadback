@@ -6,8 +6,7 @@ using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-// ReSharper disable once CheckNamespace
-namespace Yangrc.OpenGLAsyncReadback
+namespace UniversalAsyncGPUReadbackPlugin
 {
     internal struct OpenGLAsyncReadbackRequest
     {

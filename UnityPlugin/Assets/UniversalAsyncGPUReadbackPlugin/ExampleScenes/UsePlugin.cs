@@ -3,8 +3,7 @@ using System.Collections.Generic;
 using Unity.Collections;
 using System.IO;
 
-// ReSharper disable once CheckNamespace
-namespace Yangrc.OpenGLAsyncReadback
+namespace UniversalAsyncGPUReadbackPlugin
 {
     /// <summary>
     /// Example of usage inspired from https://github.com/keijiro/AsyncCaptureTest/blob/master/Assets/AsyncCapture.cs
