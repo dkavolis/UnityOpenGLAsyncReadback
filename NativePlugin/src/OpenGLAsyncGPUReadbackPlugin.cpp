@@ -80,6 +80,17 @@ class BaseTask {
     initialized_ = true;
   }
 
+  void wait_for_completion() {
+    GLenum status = glClientWaitSync(fence_, GL_SYNC_FLUSH_COMMANDS_BIT, UINT64_MAX);
+    if (status != GL_CONDITION_SATISFIED && status != GL_ALREADY_SIGNALED) [[unlikely]] {
+      // timeout, error or unknown status -> treat as error
+      set_error_and_done();
+      return;
+    }
+
+    retrieve_data();
+  }
+
   void update() {
     // Check fence state
     GLint status = 0;
@@ -92,20 +103,7 @@ class BaseTask {
     }
 
     // When it's done
-    if (status == GL_SIGNALED) {
-      // Bind back the pbo
-      glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo_);
-
-      // Map the buffer and copy it to data
-      void* ptr = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, buffer_size_, GL_MAP_READ_BIT);
-
-      set_data_and_done(ptr, buffer_size_);
-
-      // Unmap and unbind
-      glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
-      glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-      clean_up();
-    }
+    if (status == GL_SIGNALED) { retrieve_data(); }
   }
 
  protected:
@@ -148,6 +146,21 @@ class BaseTask {
       std::memcpy(dst, data, std::min(result_.size(), length));
     }
     done_ = true;
+  }
+
+  void retrieve_data() {
+    // Bind back the pbo
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo_);
+
+    // Map the buffer and copy it to data
+    void* ptr = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, buffer_size_, GL_MAP_READ_BIT);
+
+    set_data_and_done(ptr, buffer_size_);
+
+    // Unmap and unbind
+    glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    clean_up();
   }
 };
 
@@ -344,30 +357,31 @@ void Plugin::wait_for_completion(EventId event_id) const {
   }
 
   // using example from https://en.cppreference.com/w/cpp/thread/condition_variable
-  static std::mutex mutex;
   static std::condition_variable cv;
-  static bool event_complete = false;
 
   assert(issue_plugin_event_ != nullptr);
-  while (!task->is_done()) {
-    std::unique_lock lock(mutex);
-    event_complete = false;
 
-    // can only update tasks from render thread
-    // don't update main thread since this blocks it, the completed tasks will then not be destroyed until the next
-    // frame
-    issue_plugin_event_(
-        [](EventId /* event_id */) {
-          instance().update_render_thread_once();
+  issue_plugin_event_(
+      [](EventId id) {
+        Plugin& plugin = instance();
 
-          std::lock_guard lock(mutex);
-          event_complete = true;
-          cv.notify_one();
-        },
-        0);
+        std::shared_ptr<BaseTask> task;
+        {
+          std::scoped_lock guard(plugin.mutex_);
+          task = plugin.find(id)->task;
+        }
 
-    cv.wait(lock, [] { return event_complete; });
-  }
+        task->wait_for_completion();
+
+        cv.notify_one();
+      },
+      event_id);
+
+  std::mutex mutex;
+  std::unique_lock lock(mutex);
+  cv.wait(lock, [&task]() { return task->is_done(); });
+
+  if (on_complete_ != nullptr) on_complete_(event_id);
 }
 
 void Plugin::update_render_thread_once() {
