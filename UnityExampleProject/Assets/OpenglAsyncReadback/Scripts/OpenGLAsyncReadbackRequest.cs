@@ -204,52 +204,52 @@ namespace Yangrc.OpenGLAsyncReadback
 #endif
         }
 
-        [DllImport("AsyncGPUReadbackPlugin")]
+        [DllImport("OpenGLAsyncGPUReadbackPlugin")]
         private static extern bool CheckCompatible();
 
-        [DllImport("AsyncGPUReadbackPlugin")]
+        [DllImport("OpenGLAsyncGPUReadbackPlugin")]
         private static extern int Request_Texture(int texture, int miplevel);
 
-        [DllImport("AsyncGPUReadbackPlugin")]
+        [DllImport("OpenGLAsyncGPUReadbackPlugin")]
         private static extern unsafe int Request_TextureIntoArray(void* buffer, int size, int texture,
             int miplevel);
 
-        [DllImport("AsyncGPUReadbackPlugin")]
+        [DllImport("OpenGLAsyncGPUReadbackPlugin")]
         private static extern int Request_ComputeBuffer(int bufferID, int bufferSize);
 
-        [DllImport("AsyncGPUReadbackPlugin")]
+        [DllImport("OpenGLAsyncGPUReadbackPlugin")]
         private static extern unsafe int Request_ComputeBufferIntoArray(void* buffer, int size, int bufferID,
             int bufferSize);
 
 
-        [DllImport("AsyncGPUReadbackPlugin")]
+        [DllImport("OpenGLAsyncGPUReadbackPlugin")]
         private static extern void SetGLIssuePluginEventPtr(GLIssuePluginEventDelegate func);
 
 
-        [DllImport("AsyncGPUReadbackPlugin")]
+        [DllImport("OpenGLAsyncGPUReadbackPlugin")]
         private static extern void SetOnCompleteCallbackPtr(RequestCallbackDelegate func);
 
-        [DllImport("AsyncGPUReadbackPlugin")]
+        [DllImport("OpenGLAsyncGPUReadbackPlugin")]
         private static extern void SetOnDestructCallbackPtr(RequestCallbackDelegate func);
 
 
-        [DllImport("AsyncGPUReadbackPlugin")]
+        [DllImport("OpenGLAsyncGPUReadbackPlugin")]
         private static extern void MainThread_UpdateOnce();
 
 
-        [DllImport("AsyncGPUReadbackPlugin")]
+        [DllImport("OpenGLAsyncGPUReadbackPlugin")]
         private static extern unsafe bool Request_GetData(int eventID, ref void* buffer, ref int length);
 
-        [DllImport("AsyncGPUReadbackPlugin")]
+        [DllImport("OpenGLAsyncGPUReadbackPlugin")]
         private static extern bool Request_Error(int eventID);
 
-        [DllImport("AsyncGPUReadbackPlugin")]
+        [DllImport("OpenGLAsyncGPUReadbackPlugin")]
         private static extern bool Request_Exists(int eventID);
 
-        [DllImport("AsyncGPUReadbackPlugin")]
+        [DllImport("OpenGLAsyncGPUReadbackPlugin")]
         private static extern bool Request_Done(int eventID);
 
-        [DllImport("AsyncGPUReadbackPlugin")]
+        [DllImport("OpenGLAsyncGPUReadbackPlugin")]
         private static extern void Request_WaitForCompletion(int eventID);
     }
 }

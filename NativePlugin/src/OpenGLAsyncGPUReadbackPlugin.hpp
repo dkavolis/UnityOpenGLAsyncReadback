@@ -5,7 +5,7 @@
 #include <mutex>
 #include <vector>
 
-#include "AsyncGPUReadbackPluginAPI.hpp"
+#include "OpenGLAsyncGPUReadbackPluginAPI.hpp"
 
 struct Request;
 class BaseTask;

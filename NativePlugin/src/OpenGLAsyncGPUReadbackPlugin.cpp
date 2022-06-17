@@ -1,4 +1,4 @@
-#include "AsyncGPUReadbackPlugin.hpp"
+#include "OpenGLAsyncGPUReadbackPlugin.hpp"
 
 #include <algorithm>
 #include <cassert>

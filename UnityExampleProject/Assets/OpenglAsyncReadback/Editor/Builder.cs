@@ -12,13 +12,13 @@ namespace OpenglAsyncReadback.Editor
         private const string BinDir = "../bin";
         private const string PlayerDir = BinDir + "/player";
 
-        [MenuItem("AsyncGPUReadbackPlugin/Build")]
+        [MenuItem("UniversalAsyncGPUReadbackPlugin/Build")]
         public static void BuildRelease()
         {
             Build(false);
         }
 
-        [MenuItem("AsyncGPUReadbackPlugin/Build Debug")]
+        [MenuItem("UniversalAsyncGPUReadbackPlugin/Build Debug")]
         public static void BuildDebug()
         {
             Build(true);

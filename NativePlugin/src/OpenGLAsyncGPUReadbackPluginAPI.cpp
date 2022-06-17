@@ -1,6 +1,6 @@
-#include "AsyncGPUReadbackPluginAPI.hpp"
+#include "OpenGLAsyncGPUReadbackPluginAPI.hpp"
 
-#include "AsyncGPUReadbackPlugin.hpp"
+#include "OpenGLAsyncGPUReadbackPlugin.hpp"
 
 static IUnityGraphics* graphics = nullptr;
 static UnityGfxRenderer renderer = kUnityGfxRendererNull;
